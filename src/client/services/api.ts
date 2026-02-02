@@ -36,10 +36,15 @@ export interface TreeResponse {
   stats: TreeStats;
 }
 
+export type BackupFormat = 'html' | 'markdown' | 'pdf' | 'html+md' | 'html+pdf' | 'md+pdf' | 'all';
+export type BackupLevel = 'space' | 'folder' | 'page';
+
 export interface BackupRequest {
   spaceId: string;
   spaceName: string;
-  format: 'html' | 'markdown' | 'pdf' | 'both' | 'all';
+  format: BackupFormat;
+  level: BackupLevel;
+  targetIds?: string[];  // Required when level is 'folder' or 'page'
 }
 
 export interface BackupResult {

@@ -9,13 +9,13 @@ interface Props {
 
 export default function MarkdownRenderer({ content }: Props) {
   return (
-    <div className="markdown-body">
+    <article className="prose prose-slate dark:prose-invert max-w-none p-6 bg-[var(--color-bg-secondary)] rounded-lg">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight, rehypeRaw]}
       >
         {content}
       </ReactMarkdown>
-    </div>
+    </article>
   );
 }

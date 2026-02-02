@@ -49,18 +49,33 @@ function buildPageLookup(pages: Page[]): Map<string, string> {
 }
 
 export function confluenceCodeMacroToFence(htmlContent: string): string {
-  const converted = htmlContent.replace(
+  const codeBlocks: string[] = [];
+
+  // Step 1: Extract code macros and replace with placeholders
+  // This prevents TurndownService from escaping backticks
+  const withPlaceholders = htmlContent.replace(
     CODE_MACRO_REGEX,
     (_match: string, lang: string | undefined, body: string | undefined) => {
       const language = (lang || '').trim();
       const code = (body || '').replace(/\r\n/g, '\n').trimEnd();
       const fence = '```';
-      return language
+      const block = language
         ? `\n${fence}${language}\n${code}\n${fence}\n`
         : `\n${fence}\n${code}\n${fence}\n`;
+      codeBlocks.push(block);
+      return `___CODE_BLOCK_PLACEHOLDER_${codeBlocks.length - 1}___`;
     }
   );
-  return turndownService.turndown(converted);
+
+  // Step 2: Convert remaining HTML to Markdown
+  let markdown = turndownService.turndown(withPlaceholders);
+
+  // Step 3: Restore code blocks from placeholders
+  codeBlocks.forEach((block, i) => {
+    markdown = markdown.replace(`___CODE_BLOCK_PLACEHOLDER_${i}___`, block);
+  });
+
+  return markdown;
 }
 
 function buildOutputDir(

@@ -7,7 +7,7 @@ interface Props {
 }
 
 export default function PageViewer({ page }: Props) {
-  const [viewMode, setViewMode] = useState<'markdown' | 'html' | 'raw'>('markdown');
+  const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
   const [preview, setPreview] = useState<{ html: string; markdown: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -30,6 +30,7 @@ export default function PageViewer({ page }: Props) {
 
   return (
     <div style={{ marginTop: '1rem' }}>
+      {/* Page metadata */}
       <div className="page-meta">
         <div className="page-meta-item">
           <span className="page-meta-label">ID:</span>
@@ -41,61 +42,53 @@ export default function PageViewer({ page }: Props) {
         </div>
         <div className="page-meta-item">
           <span className="page-meta-label">Parent:</span>
-          <span>{page.parentId || '-'}</span>
+          <span>{page.parentId || 'Root'}</span>
         </div>
         <div className="page-meta-item">
           <span className="page-meta-label">Status:</span>
           <span>{page.status}</span>
         </div>
-        <div className="page-meta-item">
-          <span className="page-meta-label">Created:</span>
-          <span>{new Date(page.createdAt).toLocaleString()}</span>
-        </div>
       </div>
 
+      {/* Content card */}
       <div className="card">
+        {/* View mode toggle - simplified to Preview/Raw */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
           <button
-            className={`btn ${viewMode === 'markdown' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setViewMode('markdown')}
+            className={`btn ${viewMode === 'preview' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setViewMode('preview')}
           >
-            Markdown
-          </button>
-          <button
-            className={`btn ${viewMode === 'html' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setViewMode('html')}
-          >
-            HTML
+            Preview
           </button>
           <button
             className={`btn ${viewMode === 'raw' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setViewMode('raw')}
           >
-            Raw Storage
+            Raw
           </button>
         </div>
 
-        <h2 style={{ marginBottom: '1rem' }}>{page.title}</h2>
+        {/* Title */}
+        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem', fontWeight: 600 }}>
+          {page.title}
+        </h2>
 
+        {/* Content */}
         {loading ? (
           <div className="loading">Loading preview...</div>
-        ) : viewMode === 'markdown' && preview ? (
+        ) : viewMode === 'preview' && preview ? (
           <MarkdownRenderer content={preview.markdown} />
-        ) : viewMode === 'html' && preview ? (
-          <div
-            className="markdown-body"
-            dangerouslySetInnerHTML={{ __html: preview.html }}
-          />
         ) : (
           <pre
             style={{
-              background: 'var(--bg-primary)',
+              background: 'var(--color-bg-primary)',
               padding: '1rem',
               borderRadius: '6px',
               overflow: 'auto',
-              fontSize: '0.875rem',
+              fontSize: '0.75rem',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
+              maxHeight: '600px',
             }}
           >
             {page.body?.storage?.value || 'No content'}
