@@ -32,6 +32,10 @@ const turndownService = new TurndownService({
 // Enable GFM (GitHub Flavored Markdown) - tables, strikethrough, etc.
 turndownService.use(gfm);
 
+// Disable markdown special character escaping
+// Confluence HTML is already properly structured, no additional escaping needed
+turndownService.escape = (text: string) => text;
+
 // ============================================================================
 // Confluence Macro Regexes
 // ============================================================================
@@ -252,7 +256,8 @@ function removeTocMacro(html: string): string {
 function convertViewFileMacro(
   html: string,
   attachmentsPath: string = './attachments',
-  showRelativePath: boolean = false
+  showRelativePath: boolean = false,
+  disableLink: boolean = false
 ): string {
   // For file:// URLs (PDF), don't encode filename - Puppeteer handles raw paths better
   // For relative/http URLs (HTML), encode for browser compatibility
@@ -260,10 +265,19 @@ function convertViewFileMacro(
 
   return html.replace(VIEW_FILE_MACRO_REGEX, (_m, filename) => {
     const escapedFilename = escapeHtml(filename);
+    const relativePath = `./attachments/${filename}`;
+
+    // PDF mode: show text only without hyperlink (file:// links don't work after temp cleanup)
+    if (disableLink) {
+      return (
+        `<span class="attachment-link">📎 ${escapedFilename}</span>` +
+        `<br/><small style="color: #666; font-size: 7pt;">(${relativePath})</small>`
+      );
+    }
+
     const href = isFileUrl
       ? `${attachmentsPath}/${filename}`
       : `${attachmentsPath}/${encodeURIComponent(filename)}`;
-    const relativePath = `./attachments/${filename}`;
 
     if (showRelativePath) {
       return (
@@ -314,20 +328,16 @@ function convertAcImageToImgForPdf(htmlContent: string, absoluteAttachmentsPath:
   return content;
 }
 
-// Process Confluence macros for PDF (images with absolute paths, links with relative paths)
+// Process Confluence macros for PDF (images with absolute paths, attachment links as text only)
 function processConfluenceHtmlForPdf(html: string, absoluteAttachmentsPath: string): string {
-  // Normalize path separators to forward slashes (Windows compatibility)
-  const normalizedPath = absoluteAttachmentsPath.replace(/\\/g, '/');
-
   let processed = html;
   processed = confluenceCodeMacroToHtml(processed);
   processed = convertAcImageToImgForPdf(processed, absoluteAttachmentsPath);
   processed = convertExpandMacro(processed);
   processed = convertCalloutMacros(processed);
-  // Use file:// paths for view-file links in PDF and show relative path text
-  // Linux: file:// + /path, Windows: file:/// + C:/path
-  const fileUrlPrefix = normalizedPath.startsWith('/') ? `file://${normalizedPath}` : `file:///${normalizedPath}`;
-  processed = convertViewFileMacro(processed, fileUrlPrefix, true);
+  // Disable hyperlinks for attachments in PDF - show text with relative path only
+  // file:// links to temp directory become invalid after PDF generation cleanup
+  processed = convertViewFileMacro(processed, '', true, true);
   processed = removeTocMacro(processed);
   return processed;
 }
