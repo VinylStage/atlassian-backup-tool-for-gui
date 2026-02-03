@@ -7,7 +7,7 @@ interface Props {
 }
 
 export default function PageViewer({ page }: Props) {
-  const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
+  const [viewMode, setViewMode] = useState<'preview' | 'markdown'>('preview');
   const [preview, setPreview] = useState<{ html: string; markdown: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -86,10 +86,10 @@ export default function PageViewer({ page }: Props) {
             Preview
           </button>
           <button
-            className={`btn ${viewMode === 'raw' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setViewMode('raw')}
+            className={`btn ${viewMode === 'markdown' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setViewMode('markdown')}
           >
-            Raw
+            Markdown
           </button>
         </div>
 
@@ -155,7 +155,7 @@ export default function PageViewer({ page }: Props) {
           />
         ) : (
           <pre className="raw-view">
-            {page.body?.storage?.value || 'No content'}
+            {preview?.markdown || 'No content'}
           </pre>
         )}
       </div>

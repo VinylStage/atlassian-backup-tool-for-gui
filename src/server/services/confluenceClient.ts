@@ -206,6 +206,46 @@ export class ConfluenceClient {
 
     return { downloaded, failed };
   }
+
+  /**
+   * Delete a page by its ID
+   * Uses Confluence REST API v2
+   */
+  async deletePage(pageId: string): Promise<void> {
+    logger.info(`Deleting page ${pageId}...`);
+    await this.client.delete(`/pages/${pageId}`);
+    logger.info(`Page ${pageId} deleted successfully.`);
+  }
+
+  /**
+   * Get all descendant page IDs for a given page (children, grandchildren, etc.)
+   */
+  async getDescendantPageIds(pageId: string): Promise<string[]> {
+    logger.info(`Fetching descendants for page ${pageId}...`);
+    const descendants: string[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const params: Record<string, string | number> = { limit: 250 };
+      if (cursor) params.cursor = cursor;
+
+      const response = await this.client.get(`/pages/${pageId}/children`, { params });
+
+      for (const item of response.data.results) {
+        const childId = String(item.id);
+        descendants.push(childId);
+        // Recursively get children of this child
+        const childDescendants = await this.getDescendantPageIds(childId);
+        descendants.push(...childDescendants);
+      }
+
+      cursor = response.data._links?.next
+        ? new URL(response.data._links.next, `https://${config.domain}`).searchParams.get('cursor')
+        : null;
+    } while (cursor);
+
+    return descendants;
+  }
 }
 
 let clientInstance: ConfluenceClient | null = null;

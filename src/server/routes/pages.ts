@@ -146,5 +146,86 @@ export function createPagesRouter(): Router {
     }
   });
 
+  // DELETE /api/pages/:id - Delete single page
+  router.delete('/:id', async (req: Request, res: Response) => {
+    try {
+      const pageId = req.params.id;
+      const client = getConfluenceClient();
+
+      await client.deletePage(pageId);
+
+      // Clear cache for this page
+      pageCache.delete(pageId);
+
+      res.json({ success: true, message: `Page ${pageId} deleted successfully` });
+    } catch (error) {
+      logger.error('Failed to delete page:', error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : 'Failed to delete page',
+      });
+    }
+  });
+
+  // POST /api/pages/bulk-delete - Delete multiple pages
+  router.post('/bulk-delete', async (req: Request, res: Response) => {
+    try {
+      const { pageIds, includeChildren } = req.body as {
+        pageIds: string[];
+        includeChildren?: boolean;
+      };
+
+      if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
+        return res.status(400).json({ message: 'pageIds array is required' });
+      }
+
+      const client = getConfluenceClient();
+      const results: { pageId: string; success: boolean; error?: string }[] = [];
+      const allPageIds = new Set<string>(pageIds);
+
+      // If includeChildren, get all descendant pages first
+      if (includeChildren) {
+        for (const pageId of pageIds) {
+          try {
+            const descendants = await client.getDescendantPageIds(pageId);
+            descendants.forEach((id) => allPageIds.add(id));
+          } catch (error) {
+            logger.warn(`Failed to get descendants for page ${pageId}:`, error);
+          }
+        }
+      }
+
+      // Delete pages in reverse order (children first) to avoid dependency issues
+      const pageIdsArray = Array.from(allPageIds);
+
+      for (const pageId of pageIdsArray) {
+        try {
+          await client.deletePage(pageId);
+          pageCache.delete(pageId);
+          results.push({ pageId, success: true });
+        } catch (error) {
+          results.push({
+            pageId,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      }
+
+      const successCount = results.filter((r) => r.success).length;
+      const failCount = results.filter((r) => !r.success).length;
+
+      res.json({
+        success: failCount === 0,
+        message: `Deleted ${successCount} pages, ${failCount} failed`,
+        results,
+      });
+    } catch (error) {
+      logger.error('Failed to bulk delete pages:', error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : 'Failed to delete pages',
+      });
+    }
+  });
+
   return router;
 }

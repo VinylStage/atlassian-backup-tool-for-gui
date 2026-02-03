@@ -37,6 +37,7 @@ interface AppState {
 
   // Cache management
   clearCache: () => void;
+  refreshCurrentSpace: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -157,5 +158,43 @@ export const useStore = create<AppState>((set, get) => ({
       pagesCache: new Map(),
       treeCache: new Map(),
     });
+  },
+
+  // Refresh current space (force reload tree and pages)
+  refreshCurrentSpace: async () => {
+    const { selectedSpace, pagesCache, treeCache } = get();
+    if (!selectedSpace) return;
+
+    // Clear cache for current space
+    const newPagesCache = new Map(pagesCache);
+    const newTreeCache = new Map(treeCache);
+    newPagesCache.delete(selectedSpace.id);
+    newTreeCache.delete(selectedSpace.id);
+    set({ pagesCache: newPagesCache, treeCache: newTreeCache });
+
+    // Re-fetch data
+    set({ spaceDataLoading: true, selectedPageId: null });
+    try {
+      const [treeData, pages] = await Promise.all([
+        api.getTree(selectedSpace.id),
+        api.getPages(selectedSpace.id),
+      ]);
+
+      const updatedPagesCache = new Map(get().pagesCache);
+      const updatedTreeCache = new Map(get().treeCache);
+      updatedPagesCache.set(selectedSpace.id, pages);
+      updatedTreeCache.set(selectedSpace.id, { tree: treeData.tree, stats: treeData.stats });
+
+      set({
+        pagesCache: updatedPagesCache,
+        treeCache: updatedTreeCache,
+        spaceDataLoading: false,
+      });
+    } catch (err) {
+      set({
+        error: 'Failed to refresh space data.',
+        spaceDataLoading: false,
+      });
+    }
   },
 }));

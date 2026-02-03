@@ -137,6 +137,16 @@ export const api = {
     URL.revokeObjectURL(url);
   },
 
+  async deletePages(
+    pageIds: string[],
+    includeChildren: boolean
+  ): Promise<{ success: boolean; message: string; results: { pageId: string; success: boolean; error?: string }[] }> {
+    return fetchJson('/pages/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ pageIds, includeChildren }),
+    });
+  },
+
   async downloadBackup(
     spaceId: string,
     spaceName: string,

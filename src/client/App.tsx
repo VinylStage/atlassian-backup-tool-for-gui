@@ -1,9 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import SpaceList from './components/SpaceList';
 import PageTree from './components/PageTree';
 import PageViewer from './components/PageViewer';
 import BackupPanel from './components/BackupPanel';
 import { useStore } from './store/useStore';
+
+const SIDEBAR_MIN_WIDTH = 240;
+const SIDEBAR_MAX_WIDTH = 600;
+const SIDEBAR_DEFAULT_WIDTH = 320;
+const SIDEBAR_STORAGE_KEY = 'sidebarWidth';
 
 export default function App() {
   const {
@@ -20,11 +25,63 @@ export default function App() {
     getCurrentTree,
     getCurrentStats,
     getCurrentPages,
+    refreshCurrentSpace,
   } = useStore();
+
+  // Sidebar resize state
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return saved ? parseInt(saved, 10) : SIDEBAR_DEFAULT_WIDTH;
+  });
+  const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
     loadSpaces();
   }, [loadSpaces]);
+
+  // Resize handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = Math.min(Math.max(e.clientX, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
+      setSidebarWidth(newWidth);
+    },
+    [isResizing]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    if (isResizing) {
+      setIsResizing(false);
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarWidth));
+    }
+  }, [isResizing, sidebarWidth]);
+
+  // Add/remove global event listeners for resize
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp]);
 
   const tree = getCurrentTree();
   const stats = getCurrentStats();
@@ -33,7 +90,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ width: sidebarWidth }}>
         <div className="card">
           <div className="card-title">Spaces</div>
           <SpaceList
@@ -51,6 +108,7 @@ export default function App() {
               tree={tree}
               selectedPageId={selectedPageId}
               onSelect={selectPage}
+              onPagesDeleted={refreshCurrentSpace}
             />
           </div>
         )}
@@ -83,6 +141,12 @@ export default function App() {
           />
         )}
       </aside>
+
+      {/* Resize handle */}
+      <div
+        className="resize-handle"
+        onMouseDown={handleMouseDown}
+      />
 
       <main className="main-content">
         <header className="header">
