@@ -81,13 +81,15 @@ export const api = {
     return data.spaces;
   },
 
-  async getPages(spaceId: string): Promise<Page[]> {
-    const data = await fetchJson<{ pages: Page[] }>(`/spaces/${spaceId}/pages`);
+  async getPages(spaceId: string, refresh = false): Promise<Page[]> {
+    const query = refresh ? '?refresh=true' : '';
+    const data = await fetchJson<{ pages: Page[] }>(`/spaces/${spaceId}/pages${query}`);
     return data.pages;
   },
 
-  async getTree(spaceId: string): Promise<TreeResponse> {
-    return fetchJson<TreeResponse>(`/spaces/${spaceId}/tree`);
+  async getTree(spaceId: string, refresh = false): Promise<TreeResponse> {
+    const query = refresh ? '?refresh=true' : '';
+    return fetchJson<TreeResponse>(`/spaces/${spaceId}/tree${query}`);
   },
 
   async getPagePreview(pageId: string): Promise<{ html: string; markdown: string }> {
@@ -139,11 +141,12 @@ export const api = {
 
   async deletePages(
     pageIds: string[],
-    includeChildren: boolean
+    includeChildren: boolean,
+    spaceId?: string
   ): Promise<{ success: boolean; message: string; results: { pageId: string; success: boolean; error?: string }[] }> {
     return fetchJson('/pages/bulk-delete', {
       method: 'POST',
-      body: JSON.stringify({ pageIds, includeChildren }),
+      body: JSON.stringify({ pageIds, includeChildren, spaceId }),
     });
   },
 

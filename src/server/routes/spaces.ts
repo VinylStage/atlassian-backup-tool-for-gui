@@ -9,6 +9,11 @@ const logger = setupLogger('routes_spaces');
 const pagesCache = new Map<string, { pages: any[]; spaceName: string; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Export cache clear function for use in other routes (e.g., after delete)
+export function clearSpaceCache(spaceId: string): void {
+  pagesCache.delete(spaceId);
+}
+
 export function createSpacesRouter(): Router {
   const router = Router();
 
@@ -28,11 +33,12 @@ export function createSpacesRouter(): Router {
   router.get('/:id/pages', async (req: Request, res: Response) => {
     try {
       const spaceId = req.params.id;
+      const refresh = req.query.refresh === 'true';
       const client = getConfluenceClient();
 
-      // Check cache
+      // Check cache (skip if refresh requested)
       const cached = pagesCache.get(spaceId);
-      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      if (!refresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return res.json({ pages: cached.pages });
       }
 
@@ -58,14 +64,15 @@ export function createSpacesRouter(): Router {
   router.get('/:id/tree', async (req: Request, res: Response) => {
     try {
       const spaceId = req.params.id;
+      const refresh = req.query.refresh === 'true';
       const client = getConfluenceClient();
 
-      // Check cache
+      // Check cache (skip if refresh requested)
       let pages: any[];
       let spaceName: string;
 
       const cached = pagesCache.get(spaceId);
-      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      if (!refresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
         pages = cached.pages;
         spaceName = cached.spaceName;
       } else {

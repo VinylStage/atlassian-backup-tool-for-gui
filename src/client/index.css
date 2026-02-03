@@ -120,6 +120,13 @@ body {
   letter-spacing: 0.5px;
 }
 
+.card-title-with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
 /* Space list */
 .space-item {
   padding: 0.5rem 0.75rem;

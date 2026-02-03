@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { TreeNode, api } from '../services/api';
+import { useStore } from '../store/useStore';
 
 interface TreeNodeItemProps {
   node: TreeNode;
@@ -161,6 +162,7 @@ interface Props {
 }
 
 export default function PageTree({ tree, selectedPageId, onSelect, onPagesDeleted }: Props) {
+  const selectedSpace = useStore((state) => state.selectedSpace);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -205,7 +207,11 @@ export default function PageTree({ tree, selectedPageId, onSelect, onPagesDelete
     setDeleteError(null);
 
     try {
-      const result = await api.deletePages(Array.from(selectedIds), includeChildren);
+      const result = await api.deletePages(
+        Array.from(selectedIds),
+        includeChildren,
+        selectedSpace?.id
+      );
       if (!result.success) {
         setDeleteError(result.message);
       }

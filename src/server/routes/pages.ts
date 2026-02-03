@@ -7,6 +7,7 @@ import { getConfluenceClient } from '../services/confluenceClient.js';
 import { getPagePreview, convertPages } from '../services/parser.js';
 import { setupLogger } from '../utils/logger.js';
 import { safeFilename, ensureDir } from '../utils/fileUtils.js';
+import { clearSpaceCache } from './spaces.js';
 
 const logger = setupLogger('routes_pages');
 
@@ -169,9 +170,10 @@ export function createPagesRouter(): Router {
   // POST /api/pages/bulk-delete - Delete multiple pages
   router.post('/bulk-delete', async (req: Request, res: Response) => {
     try {
-      const { pageIds, includeChildren } = req.body as {
+      const { pageIds, includeChildren, spaceId } = req.body as {
         pageIds: string[];
         includeChildren?: boolean;
+        spaceId?: string;
       };
 
       if (!pageIds || !Array.isArray(pageIds) || pageIds.length === 0) {
@@ -209,6 +211,11 @@ export function createPagesRouter(): Router {
             error: error instanceof Error ? error.message : 'Unknown error',
           });
         }
+      }
+
+      // Clear space cache so next refresh gets fresh data
+      if (spaceId) {
+        clearSpaceCache(spaceId);
       }
 
       const successCount = results.filter((r) => r.success).length;

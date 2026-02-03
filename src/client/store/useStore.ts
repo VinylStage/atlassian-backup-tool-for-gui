@@ -165,19 +165,19 @@ export const useStore = create<AppState>((set, get) => ({
     const { selectedSpace, pagesCache, treeCache } = get();
     if (!selectedSpace) return;
 
-    // Clear cache for current space
+    // Clear local cache for current space
     const newPagesCache = new Map(pagesCache);
     const newTreeCache = new Map(treeCache);
     newPagesCache.delete(selectedSpace.id);
     newTreeCache.delete(selectedSpace.id);
     set({ pagesCache: newPagesCache, treeCache: newTreeCache });
 
-    // Re-fetch data
+    // Re-fetch data with refresh=true to bypass server cache
     set({ spaceDataLoading: true, selectedPageId: null });
     try {
       const [treeData, pages] = await Promise.all([
-        api.getTree(selectedSpace.id),
-        api.getPages(selectedSpace.id),
+        api.getTree(selectedSpace.id, true),
+        api.getPages(selectedSpace.id, true),
       ]);
 
       const updatedPagesCache = new Map(get().pagesCache);

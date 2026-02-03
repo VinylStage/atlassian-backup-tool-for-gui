@@ -103,7 +103,17 @@ export default function App() {
 
         {selectedSpace && tree && (
           <div className="card">
-            <div className="card-title">Pages</div>
+            <div className="card-title-with-action">
+              <span className="card-title" style={{ marginBottom: 0 }}>Pages</span>
+              <button
+                className="btn btn-sm btn-secondary"
+                onClick={refreshCurrentSpace}
+                disabled={spaceDataLoading}
+                title="새로고침"
+              >
+                {spaceDataLoading ? '...' : '↻'}
+              </button>
+            </div>
             <PageTree
               tree={tree}
               selectedPageId={selectedPageId}
