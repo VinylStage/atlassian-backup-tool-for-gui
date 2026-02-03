@@ -384,4 +384,5 @@ Pages 섹션 제목 옆의 **↻ 버튼**을 클릭합니다.
 
 ## 도움이 더 필요하신가요?
 
-기술적인 문제는 [기술 문서](technical.md)를 참조하거나, 담당자에게 문의하세요.
+- 기술적인 문제는 [기술 문서](technical.md)를 참조하세요.
+- 버그 리포트 및 기능 제안은 [GitHub Issues](https://github.com/VinylStage/atlassian-backup-tool-for-gui/issues)에 등록해주세요.

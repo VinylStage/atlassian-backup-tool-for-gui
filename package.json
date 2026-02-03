@@ -2,6 +2,16 @@
   "name": "atlassian-backup-tool-gui",
   "version": "1.0.1",
   "description": "Confluence Cloud backup tool with React web UI",
+  "license": "MIT",
+  "author": "VinylStage",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VinylStage/atlassian-backup-tool-for-gui.git"
+  },
+  "homepage": "https://github.com/VinylStage/atlassian-backup-tool-for-gui#readme",
+  "bugs": {
+    "url": "https://github.com/VinylStage/atlassian-backup-tool-for-gui/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=18.0.0",

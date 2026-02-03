@@ -93,9 +93,17 @@ data/{SPACE_ID}_{SPACE_NAME}/
 - **Backend**: Express.js, Node.js
 - **Build**: Vite
 
-## 라이선스
+## Disclaimer
 
-MIT
+This tool uses the Atlassian REST API but is not affiliated with or endorsed by Atlassian.
+Use of this tool requires your own Atlassian account and API token, subject to [Atlassian's Developer Terms](https://developer.atlassian.com/platform/marketplace/atlassian-developer-terms/).
+
+## License
+
+MIT License - See [LICENSE](LICENSE) file
+
+This project is independently developed and is not an official Atlassian product.
+Atlassian, Confluence, and Jira are trademarks of Atlassian Pty Ltd.
 
 ## 관련 문서
 
