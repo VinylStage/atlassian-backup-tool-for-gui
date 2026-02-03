@@ -123,43 +123,72 @@ highlight.js를 사용하여 코드 블록에 언어별 구문 강조를 적용�
 ```
 GET /api/spaces
 ```
-
 모든 Confluence Space 목록 조회
+
+```
+GET /api/spaces/:id/pages
+GET /api/spaces/:id/pages?refresh=true
+```
+특정 Space의 모든 페이지 조회
+- `refresh=true`: 서버 캐시 무시하고 Confluence API에서 새로 조회
+
+```
+GET /api/spaces/:id/tree
+GET /api/spaces/:id/tree?refresh=true
+```
+페이지 트리 구조 조회
+- `refresh=true`: 서버 캐시 무시
 
 ### Pages
 
 ```
-GET /api/pages/:spaceId
+GET /api/pages/:id/preview
 ```
-
-특정 Space의 모든 페이지 조회
-
-```
-GET /api/pages/:spaceId/:pageId/preview
-```
-
-페이지 미리보기 (HTML/Markdown 변환)
-
-### Attachments
+페이지 미리보기 (HTML/Markdown 변환 결과)
 
 ```
-GET /api/attachments/:pageId
+POST /api/pages/:id/download
+```
+단일 페이지 다운로드 (ZIP)
+
+**Request Body:**
+```json
+{
+  "formats": { "html": true, "md": true, "pdf": false },
+  "spaceName": "Engineering Wiki"
+}
 ```
 
-페이지의 첨부파일 목록
+```
+DELETE /api/pages/:id
+```
+단일 페이지 삭제 (Confluence에서 영구 삭제)
 
 ```
-GET /api/attachments/:pageId/:filename
+POST /api/pages/bulk-delete
+```
+다중 페이지 삭제
+
+**Request Body:**
+```json
+{
+  "pageIds": ["123", "456", "789"],
+  "includeChildren": true,
+  "spaceId": "1572879"
+}
 ```
 
-첨부파일 다운로드/서빙
+| 필드 | 설명 |
+|------|------|
+| `pageIds` | 삭제할 페이지 ID 배열 |
+| `includeChildren` | true면 하위 페이지도 함께 삭제 |
+| `spaceId` | Space ID (캐시 무효화용) |
 
 ### Backup
 
 ```
 POST /api/backup
 ```
-
 백업 실행
 
 **Request Body:**
@@ -181,6 +210,60 @@ POST /api/backup
 - `html+pdf` - HTML + PDF
 - `md+pdf` - Markdown + PDF
 - `all` - 모든 형식
+
+```
+POST /api/backup/download
+```
+백업 후 ZIP 다운로드
+
+## 서버 캐시 시스템
+
+서버는 Confluence API 응답을 캐싱하여 성능을 향상시킵니다.
+
+### 캐시 동작
+
+| 항목 | TTL | 설명 |
+|------|-----|------|
+| Space 페이지 목록 | 5분 | `/api/spaces/:id/pages`, `/api/spaces/:id/tree` |
+| 페이지 미리보기 | 5분 | `/api/pages/:id/preview` |
+
+### 캐시 무효화
+
+| 트리거 | 동작 |
+|--------|------|
+| `?refresh=true` 쿼리 | 해당 요청에서 캐시 무시 |
+| 페이지 삭제 | 해당 Space 캐시 자동 삭제 |
+
+## 클라이언트 상태 관리
+
+Zustand를 사용한 상태 관리 구조:
+
+```typescript
+interface AppState {
+  // Spaces
+  spaces: Space[];
+  selectedSpace: Space | null;
+
+  // Pages
+  pagesCache: Map<string, Page[]>;
+  treeCache: Map<string, TreeData>;
+  selectedPageId: string | null;
+
+  // Actions
+  loadSpaces(): Promise<void>;
+  selectSpace(space: Space): Promise<void>;
+  refreshCurrentSpace(): Promise<void>;  // 서버 캐시 무시
+}
+```
+
+## UI 기능
+
+### 리사이즈 가능한 사이드바
+
+- **최소 너비**: 240px
+- **최대 너비**: 600px
+- **기본 너비**: 320px
+- **저장**: localStorage (`sidebarWidth` 키)
 
 ## 주요 의존성
 
