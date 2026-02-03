@@ -29,6 +29,7 @@
     "puppeteer": "^21.6.0",
     "tailwindcss": "^4.1.18",
     "turndown": "^7.1.2",
+    "turndown-plugin-gfm": "^1.0.2",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
     "zustand": "^5.0.11"

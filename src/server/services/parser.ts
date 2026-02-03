@@ -1,5 +1,6 @@
 import path from 'path';
 import TurndownService from 'turndown';
+import { gfm } from 'turndown-plugin-gfm';
 import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js';
@@ -22,16 +23,14 @@ marked.use(
   })
 );
 
-// Turndown for HTML to Markdown conversion
+// Turndown for HTML to Markdown conversion with GFM support
 const turndownService = new TurndownService({
   headingStyle: 'atx',
   codeBlockStyle: 'fenced',
 });
 
-// Override escape function to be less aggressive
-turndownService.escape = (str: string): string => {
-  return str.replace(/\\/g, '\\\\');
-};
+// Enable GFM (GitHub Flavored Markdown) - tables, strikethrough, etc.
+turndownService.use(gfm);
 
 // ============================================================================
 // Confluence Macro Regexes
@@ -155,6 +154,23 @@ export function confluenceCodeMacroToHtml(htmlContent: string): string {
   );
 }
 
+// Clean Confluence-specific HTML for better Markdown conversion
+function cleanConfluenceHtmlForMarkdown(html: string): string {
+  let cleaned = html;
+
+  // Remove <p> tags inside <th> and <td> (Confluence wraps cell content in <p>)
+  // This prevents Turndown from adding extra newlines in tables
+  cleaned = cleaned.replace(/<(th|td)([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/(th|td)>/gi, '<$1$2>$3</$4>');
+
+  // Remove Confluence-specific attributes that might interfere
+  cleaned = cleaned.replace(/\s+(local-id|ac:local-id|data-table-width|data-layout)="[^"]*"/gi, '');
+
+  // Clean up <br /> inside table cells
+  cleaned = cleaned.replace(/(<(th|td)[^>]*>[\s\S]*?)<br\s*\/?>([\s\S]*?<\/(th|td)>)/gi, '$1 $3');
+
+  return cleaned;
+}
+
 // Convert code macros to markdown fenced code blocks
 export function confluenceCodeMacroToFence(htmlContent: string): string {
   const codeBlocks: string[] = [];
@@ -172,7 +188,10 @@ export function confluenceCodeMacroToFence(htmlContent: string): string {
     }
   );
 
-  let markdown = turndownService.turndown(withPlaceholders);
+  // Clean Confluence-specific HTML before Turndown conversion
+  const cleanedHtml = cleanConfluenceHtmlForMarkdown(withPlaceholders);
+
+  let markdown = turndownService.turndown(cleanedHtml);
 
   codeBlocks.forEach((block, i) => {
     markdown = markdown.replace(`CODEBLOCKPLACEHOLDER${i}ENDCODEBLOCK`, block);
@@ -235,9 +254,15 @@ function convertViewFileMacro(
   attachmentsPath: string = './attachments',
   showRelativePath: boolean = false
 ): string {
+  // For file:// URLs (PDF), don't encode filename - Puppeteer handles raw paths better
+  // For relative/http URLs (HTML), encode for browser compatibility
+  const isFileUrl = attachmentsPath.startsWith('file://');
+
   return html.replace(VIEW_FILE_MACRO_REGEX, (_m, filename) => {
     const escapedFilename = escapeHtml(filename);
-    const href = `${attachmentsPath}/${encodeURIComponent(filename)}`;
+    const href = isFileUrl
+      ? `${attachmentsPath}/${filename}`
+      : `${attachmentsPath}/${encodeURIComponent(filename)}`;
     const relativePath = `./attachments/${filename}`;
 
     if (showRelativePath) {
@@ -273,17 +298,16 @@ function convertAcImageToImgForPdf(htmlContent: string, absoluteAttachmentsPath:
     return `<img src="${escapedUrl}" alt="image" style="max-width: 100%;" />`;
   });
 
-  // Attachment images - use file:// absolute path with proper encoding
+  // Attachment images - use file:// absolute path WITHOUT URL encoding
+  // Puppeteer handles raw filenames better than percent-encoded ones (like Python/WeasyPrint)
   content = content.replace(AC_IMAGE_ATTACHMENT_REGEX, (_match, filename) => {
     const escapedFilename = filename.replace(/"/g, '&quot;');
-    // URL encode filename for special characters (spaces, Korean, etc.)
-    const encodedFilename = encodeURIComponent(filename);
     // Construct proper file:// URL - Linux paths start with /, Windows paths don't
     // Linux: file:// + /path = file:///path (3 slashes total)
     // Windows: file:/// + C:/path = file:///C:/path (3 slashes total)
     const absoluteSrc = normalizedPath.startsWith('/')
-      ? `file://${normalizedPath}/${encodedFilename}`
-      : `file:///${normalizedPath}/${encodedFilename}`;
+      ? `file://${normalizedPath}/${filename}`
+      : `file:///${normalizedPath}/${filename}`;
     return `<img src="${absoluteSrc}" alt="${escapedFilename}" style="max-width: 100%;" />`;
   });
 
@@ -545,7 +569,11 @@ export async function convertPages(
   let browser: Awaited<ReturnType<typeof import('puppeteer').launch>> | null = null;
   if (formats.pdf) {
     const puppeteer = await import('puppeteer');
-    browser = await puppeteer.default.launch({ headless: true });
+    // Enable file:// access for local images in PDF
+    browser = await puppeteer.default.launch({
+      headless: true,
+      args: ['--allow-file-access-from-files', '--disable-web-security'],
+    });
   }
 
   try {
@@ -604,14 +632,18 @@ export async function convertPages(
           // Use absolute file:// path for images in PDF
           const absoluteAttachmentsPath = path.resolve(attachmentsDir);
           const htmlDoc = buildHtmlDocForPdf(page, spaceName, pageMap, absoluteAttachmentsPath);
+
+          // Save HTML to temp file for proper file:// URL resolution
+          // Using goto('file://...') instead of setContent() allows Puppeteer to load local images
+          const tempHtmlPath = path.join(pageDir, '_temp_pdf.html');
+          writeFile(tempHtmlPath, htmlDoc);
+
           const browserPage = await browser.newPage();
 
-          // Allow file:// protocol access
-          await browserPage.setBypassCSP(true);
+          // Navigate to the local HTML file (this enables proper file:// URL resolution)
+          await browserPage.goto(`file://${tempHtmlPath}`, { waitUntil: 'networkidle0' });
 
-          await browserPage.setContent(htmlDoc, { waitUntil: 'domcontentloaded' });
-
-          // Wait for all images to load (file:// URLs don't trigger network events)
+          // Wait for all images to load
           await browserPage.evaluate(async () => {
             const images = document.querySelectorAll('img');
             await Promise.all(
@@ -634,6 +666,11 @@ export async function convertPages(
             printBackground: true,
           });
           await browserPage.close();
+
+          // Clean up temp file
+          const fs = await import('fs');
+          fs.unlinkSync(tempHtmlPath);
+
           pdfCount++;
         } catch (e) {
           logger.warn(`[WARN] PDF conversion failed (id=${page.id}): ${e}`);
