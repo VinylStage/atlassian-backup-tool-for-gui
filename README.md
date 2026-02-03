@@ -26,9 +26,9 @@ npm install
 프로젝트 루트에 `.env` 파일 생성:
 
 ```env
-CONFLUENCE_DOMAIN=your-domain.atlassian.net
-CONFLUENCE_EMAIL=your-email@example.com
-CONFLUENCE_API_TOKEN=your-api-token
+DOMAIN=your-domain.atlassian.net
+EMAIL=your-email@example.com
+API_TOKEN=your-api-token
 ```
 
 API 토큰은 [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)에서 생성할 수 있습니다.

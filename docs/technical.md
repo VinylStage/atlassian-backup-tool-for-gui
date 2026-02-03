@@ -287,8 +287,8 @@ interface AppState {
 
 | 변수 | 설명 | 필수 |
 |------|------|------|
-| `CONFLUENCE_DOMAIN` | Confluence 도메인 (예: `company.atlassian.net`) | Yes |
-| `CONFLUENCE_EMAIL` | Atlassian 계정 이메일 | Yes |
-| `CONFLUENCE_API_TOKEN` | API 토큰 | Yes |
+| `DOMAIN` | Confluence 도메인 (예: `company.atlassian.net`) | Yes |
+| `EMAIL` | Atlassian 계정 이메일 | Yes |
+| `API_TOKEN` | API 토큰 | Yes |
 | `PORT` | 서버 포트 (기본: 3000) | No |
-| `DATA_DIR` | 데이터 저장 경로 (기본: `./data`) | No |
+| `NODE_ENV` | 실행 환경 (기본: `development`) | No |
