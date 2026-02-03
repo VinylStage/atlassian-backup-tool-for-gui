@@ -88,6 +88,13 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#039;');
 }
 
+// Clean escaped HTML tags from Confluence content
+// Confluence sometimes stores backslash before HTML tags like \<em>, \</em>
+function cleanEscapedHtmlTags(html: string): string {
+  // Remove backslash before HTML tags: \<tag> → <tag>, \</tag> → </tag>
+  return html.replace(/\\(<\/?[a-zA-Z][a-zA-Z0-9]*[^>]*>)/g, '$1');
+}
+
 // Build page map (id → Page)
 function buildPageMap(pages: Page[]): Map<string, Page> {
   const map = new Map<string, Page>();
@@ -177,9 +184,12 @@ function cleanConfluenceHtmlForMarkdown(html: string): string {
 
 // Convert code macros to markdown fenced code blocks
 export function confluenceCodeMacroToFence(htmlContent: string): string {
+  // Clean escaped HTML tags first (e.g., \<em> → <em>)
+  const cleanedContent = cleanEscapedHtmlTags(htmlContent);
+
   const codeBlocks: string[] = [];
 
-  const withPlaceholders = htmlContent.replace(
+  const withPlaceholders = cleanedContent.replace(
     CODE_MACRO_REGEX,
     (_match: string, lang: string | undefined, body: string | undefined) => {
       const language = (lang || '').trim();
@@ -291,7 +301,8 @@ function convertViewFileMacro(
 
 // Process all Confluence macros
 function processConfluenceHtml(html: string, attachmentsPath: string): string {
-  let processed = html;
+  // Clean escaped HTML tags first (e.g., \<em> → <em>)
+  let processed = cleanEscapedHtmlTags(html);
   processed = confluenceCodeMacroToHtml(processed);
   processed = convertAcImageToImg(processed, attachmentsPath);
   processed = convertExpandMacro(processed);
@@ -330,7 +341,8 @@ function convertAcImageToImgForPdf(htmlContent: string, absoluteAttachmentsPath:
 
 // Process Confluence macros for PDF (images with absolute paths, attachment links as text only)
 function processConfluenceHtmlForPdf(html: string, absoluteAttachmentsPath: string): string {
-  let processed = html;
+  // Clean escaped HTML tags first (e.g., \<em> → <em>)
+  let processed = cleanEscapedHtmlTags(html);
   processed = confluenceCodeMacroToHtml(processed);
   processed = convertAcImageToImgForPdf(processed, absoluteAttachmentsPath);
   processed = convertExpandMacro(processed);
