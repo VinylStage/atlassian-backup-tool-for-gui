@@ -230,10 +230,22 @@ function removeTocMacro(html: string): string {
 }
 
 // Convert view-file macro to download link
-function convertViewFileMacro(html: string, attachmentsPath: string = './attachments'): string {
+function convertViewFileMacro(
+  html: string,
+  attachmentsPath: string = './attachments',
+  showRelativePath: boolean = false
+): string {
   return html.replace(VIEW_FILE_MACRO_REGEX, (_m, filename) => {
     const escapedFilename = escapeHtml(filename);
     const href = `${attachmentsPath}/${encodeURIComponent(filename)}`;
+    const relativePath = `./attachments/${filename}`;
+
+    if (showRelativePath) {
+      return (
+        `<a href="${href}" class="attachment-link">📎 ${escapedFilename}</a>` +
+        `<br/><small style="color: #666; font-size: 7pt;">(${relativePath})</small>`
+      );
+    }
     return `<a href="${href}" class="attachment-link">📎 ${escapedFilename}</a>`;
   });
 }
@@ -250,18 +262,24 @@ function processConfluenceHtml(html: string, attachmentsPath: string): string {
   return processed;
 }
 
-// Convert image macros for PDF (absolute file:// paths for images, relative for links)
+// Convert image macros for PDF (absolute file:// paths for images)
 function convertAcImageToImgForPdf(htmlContent: string, absoluteAttachmentsPath: string): string {
+  // Normalize path separators to forward slashes (Windows compatibility)
+  const normalizedPath = absoluteAttachmentsPath.replace(/\\/g, '/');
+
   // External URL images - keep as-is
   let content = htmlContent.replace(AC_IMAGE_URL_REGEX, (_match, url) => {
     const escapedUrl = url.replace(/"/g, '&quot;');
     return `<img src="${escapedUrl}" alt="image" style="max-width: 100%;" />`;
   });
 
-  // Attachment images - use file:// absolute path
+  // Attachment images - use file:// absolute path with proper encoding
   content = content.replace(AC_IMAGE_ATTACHMENT_REGEX, (_match, filename) => {
     const escapedFilename = filename.replace(/"/g, '&quot;');
-    const absoluteSrc = `file://${absoluteAttachmentsPath}/${filename}`;
+    // URL encode filename for special characters (spaces, Korean, etc.)
+    const encodedFilename = encodeURIComponent(filename);
+    // Use file:/// with three slashes for proper file URL format
+    const absoluteSrc = `file:///${normalizedPath}/${encodedFilename}`;
     return `<img src="${absoluteSrc}" alt="${escapedFilename}" style="max-width: 100%;" />`;
   });
 
@@ -270,13 +288,16 @@ function convertAcImageToImgForPdf(htmlContent: string, absoluteAttachmentsPath:
 
 // Process Confluence macros for PDF (images with absolute paths, links with relative paths)
 function processConfluenceHtmlForPdf(html: string, absoluteAttachmentsPath: string): string {
+  // Normalize path separators to forward slashes (Windows compatibility)
+  const normalizedPath = absoluteAttachmentsPath.replace(/\\/g, '/');
+
   let processed = html;
   processed = confluenceCodeMacroToHtml(processed);
   processed = convertAcImageToImgForPdf(processed, absoluteAttachmentsPath);
   processed = convertExpandMacro(processed);
   processed = convertCalloutMacros(processed);
-  // Keep relative paths for view-file links
-  processed = convertViewFileMacro(processed, './attachments');
+  // Use file:// paths for view-file links in PDF and show relative path text
+  processed = convertViewFileMacro(processed, `file:///${normalizedPath}`, true);
   processed = removeTocMacro(processed);
   return processed;
 }
@@ -296,15 +317,126 @@ function buildHtmlDoc(
   return buildHtmlDocInternal(page, spaceName, pageMap, bodyHtml);
 }
 
-// Build HTML for PDF with absolute file:// paths for images
+// Build HTML for PDF with absolute file:// paths for images and PDF-specific styles
 function buildHtmlDocForPdf(
   page: Page,
   spaceName: string,
   pageMap: Map<string, Page>,
   absoluteAttachmentsPath: string
 ): string {
+  const titleSafe = escapeHtml(page.title || '');
+  const spaceNameSafe = escapeHtml(spaceName);
+  const parentName = page.parentId ? escapeHtml(pageMap.get(page.parentId)?.title || '') : '';
+  const parentDisplay = page.parentId
+    ? `${page.parentId} (${parentName || 'Unknown'})`
+    : '- (Root)';
+  const spaceDisplay = `${page.spaceId} (${spaceNameSafe || 'Unknown'})`;
   const bodyHtml = processConfluenceHtmlForPdf(page.body?.storage?.value || '', absoluteAttachmentsPath);
-  return buildHtmlDocInternal(page, spaceName, pageMap, bodyHtml);
+
+  // PDF-specific CSS (no Tailwind CDN - matching Python version font sizes)
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+    <title>${titleSafe}</title>
+    <style>
+      @page { size: A4; margin: 5mm; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                     "Noto Sans KR", "Malgun Gothic", sans-serif;
+        font-size: 9pt;
+        line-height: 1.4;
+        color: #111111;
+        margin: 0;
+        padding: 0.5rem;
+      }
+
+      h1 { font-size: 14pt; margin: 0 0 0.3rem 0; }
+      h2 { font-size: 12pt; margin: 0.5rem 0 0.3rem 0; }
+      h3 { font-size: 10pt; margin: 0.4rem 0 0.2rem 0; }
+      h4, h5, h6 { font-size: 9pt; margin: 0.3rem 0 0.2rem 0; }
+
+      p { margin: 0.3rem 0; }
+
+      code {
+        background: #f2f2f5;
+        padding: 0.05rem 0.15rem;
+        font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+        font-size: 7pt;
+        border-radius: 2px;
+      }
+
+      pre {
+        background: #1e1e1e;
+        padding: 0.3rem;
+        border-radius: 4px;
+        margin: 0.3rem 0;
+        overflow-x: auto;
+      }
+
+      pre code {
+        display: block;
+        background: transparent;
+        color: #eaeaea;
+        font-size: 6.5pt;
+        white-space: pre-wrap;
+        padding: 0;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        table-layout: fixed;
+        font-size: 7pt;
+        margin: 0.3rem 0;
+      }
+
+      th, td {
+        border: 1px solid #ddd;
+        padding: 2px 4px;
+        text-align: left;
+        word-break: break-word;
+      }
+
+      th { background: #f5f5f5; }
+
+      img { max-width: 100%; height: auto; }
+
+      a { color: #0066cc; word-break: break-all; }
+
+      .callout {
+        font-size: 8pt;
+        margin: 0.3rem 0;
+        padding: 0.3rem;
+        border-left: 3px solid;
+        border-radius: 4px;
+      }
+      .callout-info { background-color: #e7f3ff; border-left-color: #0066cc; }
+      .callout-tip { background-color: #e6f7e6; border-left-color: #28a745; }
+      .callout-note { background-color: #fff8e6; border-left-color: #ffc107; }
+      .callout-warning { background-color: #ffebe6; border-left-color: #dc3545; }
+      .callout-panel { background-color: #f5f5f7; border-left-color: #6c757d; }
+
+      details { margin: 0.3rem 0; }
+      details summary { cursor: pointer; font-weight: 600; padding: 0.25rem; background: #f5f5f7; border-radius: 4px; font-size: 8pt; }
+      details[open] summary { margin-bottom: 0.25rem; }
+
+      .attachment-link { display: inline-flex; align-items: center; gap: 0.15rem; color: #0066cc; font-size: 8pt; }
+
+      .meta { font-size: 7pt; color: #666; margin-bottom: 0.5rem; }
+      .footer { font-size: 6pt; color: #888; margin-top: 0.5rem; border-top: 1px solid #ddd; padding-top: 0.25rem; }
+    </style>
+</head>
+<body>
+  <h1>${titleSafe}</h1>
+  <div class="meta">
+    ID: ${page.id} | Space: ${spaceDisplay} | Parent: ${parentDisplay} | ${page.createdAt}
+  </div>
+  <div>${bodyHtml}</div>
+  <div class="footer">Exported from Confluence</div>
+</body>
+</html>`;
 }
 
 function buildHtmlDocInternal(
@@ -467,7 +599,28 @@ export async function convertPages(
           const absoluteAttachmentsPath = path.resolve(attachmentsDir);
           const htmlDoc = buildHtmlDocForPdf(page, spaceName, pageMap, absoluteAttachmentsPath);
           const browserPage = await browser.newPage();
-          await browserPage.setContent(htmlDoc, { waitUntil: 'networkidle0' });
+
+          // Allow file:// protocol access
+          await browserPage.setBypassCSP(true);
+
+          await browserPage.setContent(htmlDoc, { waitUntil: 'domcontentloaded' });
+
+          // Wait for all images to load (file:// URLs don't trigger network events)
+          await browserPage.evaluate(async () => {
+            const images = document.querySelectorAll('img');
+            await Promise.all(
+              Array.from(images).map((img) => {
+                if (img.complete) return Promise.resolve();
+                return new Promise((resolve) => {
+                  img.onload = resolve;
+                  img.onerror = resolve;
+                  // Timeout fallback after 5 seconds
+                  setTimeout(resolve, 5000);
+                });
+              })
+            );
+          });
+
           await browserPage.pdf({
             path: path.join(pageDir, 'page.pdf'),
             format: 'A4',

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { getConfluenceClient } from '../services/confluenceClient.js';
 import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
@@ -19,8 +20,8 @@ export function createAttachmentsRouter(): Router {
       const { pageId, filename } = req.params;
       const decodedFilename = decodeURIComponent(filename);
 
-      // Check local cache first
-      const cacheDir = path.join(config.dataDir, 'attachments', pageId);
+      // Check local cache first (use temp directory to avoid duplicate storage)
+      const cacheDir = path.join(os.tmpdir(), 'confluence-attachments', pageId);
       const cachePath = path.join(cacheDir, decodedFilename);
 
       if (fs.existsSync(cachePath)) {

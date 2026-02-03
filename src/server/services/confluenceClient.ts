@@ -160,7 +160,7 @@ export class ConfluenceClient {
   /**
    * Download all attachments for a page to a local directory
    * @param pageId - The page ID
-   * @param outputDir - Directory to save attachments (e.g., 'data/attachments/{pageId}')
+   * @param outputDir - Directory to save attachments (e.g., 'data/{space}/pages/{pageId}/attachments')
    * @returns Object with counts of downloaded and failed files
    */
   async downloadAttachments(

@@ -100,4 +100,40 @@ export const api = {
       body: JSON.stringify(request),
     });
   },
+
+  async downloadPage(
+    pageId: string,
+    spaceName: string,
+    formats: { html?: boolean; md?: boolean; pdf?: boolean }
+  ): Promise<void> {
+    const response = await fetch(`${BASE_URL}/pages/${pageId}/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ formats, spaceName }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Download failed' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+
+    // Get filename from Content-Disposition header or use default
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `page_${pageId}.zip`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match) filename = match[1];
+    }
+
+    // Download the blob
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };
