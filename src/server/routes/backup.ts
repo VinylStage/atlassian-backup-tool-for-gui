@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
+import os from 'os';
+import fs from 'fs';
+import archiver from 'archiver';
 import { getConfluenceClient } from '../services/confluenceClient.js';
 import { convertPages, ConvertResult } from '../services/parser.js';
 import { config } from '../config.js';
@@ -120,6 +123,110 @@ export function createBackupRouter(): Router {
       res.status(500).json({
         success: false,
         message: error instanceof Error ? error.message : 'Backup failed',
+      });
+    }
+  });
+
+  // POST /api/backup/download - Download backup as ZIP file
+  router.post('/download', async (req: Request, res: Response) => {
+    try {
+      const { spaceId, spaceName, formats, level, targetIds } = req.body as {
+        spaceId: string;
+        spaceName?: string;
+        formats: { html?: boolean; md?: boolean; pdf?: boolean };
+        level?: BackupLevel;
+        targetIds?: string[];
+      };
+
+      if (!spaceId) {
+        return res.status(400).json({ message: 'spaceId is required' });
+      }
+
+      if (!formats || (!formats.html && !formats.md && !formats.pdf)) {
+        return res.status(400).json({ message: 'At least one format must be selected' });
+      }
+
+      // For folder/page level, targetIds is required
+      if ((level === 'folder' || level === 'page') && (!targetIds || targetIds.length === 0)) {
+        return res.status(400).json({ message: 'targetIds is required for folder/page level backup' });
+      }
+
+      logger.info(`Starting download backup for space ${spaceId}, level ${level || 'space'}`);
+
+      // Fetch pages
+      const client = getConfluenceClient();
+      let pages = await client.getPagesFromSpace(spaceId);
+
+      // Filter pages based on level and targetIds
+      if ((level === 'folder' || level === 'page') && targetIds) {
+        const targetIdSet = new Set(targetIds);
+        pages = pages.filter(page => targetIdSet.has(page.id));
+        logger.info(`Filtered to ${pages.length} pages based on targetIds`);
+      }
+
+      // Create temp directory for backup
+      const tempDir = path.join(os.tmpdir(), 'confluence-backup', `${spaceId}_${Date.now()}`);
+      ensureDir(tempDir);
+
+      try {
+        // Convert pages with specified formats
+        const result = await convertPages(pages, tempDir, spaceName || '', {
+          html: formats.html,
+          markdown: formats.md,
+          pdf: formats.pdf,
+        });
+
+        logger.info(
+          `Conversion complete: ${result.pagesProcessed} pages, ` +
+          `${result.htmlCount} HTML, ${result.mdCount} MD, ${result.pdfCount} PDF`
+        );
+
+        // Create ZIP file
+        const safeSpaceName = safeFilename(spaceName || '');
+        const zipFilename = safeSpaceName
+          ? `${spaceId}_${safeSpaceName}.zip`
+          : `${spaceId}_backup.zip`;
+        const zipPath = path.join(os.tmpdir(), zipFilename);
+
+        const output = fs.createWriteStream(zipPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        archive.pipe(output);
+        archive.directory(tempDir, false);
+
+        await new Promise<void>((resolve, reject) => {
+          output.on('close', resolve);
+          archive.on('error', reject);
+          archive.finalize();
+        });
+
+        // Send ZIP file
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+
+        const fileStream = fs.createReadStream(zipPath);
+        fileStream.pipe(res);
+
+        // Cleanup after sending
+        fileStream.on('end', () => {
+          fs.rm(tempDir, { recursive: true, force: true }, () => {});
+          fs.unlink(zipPath, () => {});
+        });
+
+        fileStream.on('error', (err) => {
+          logger.error('Error streaming ZIP file:', err);
+          fs.rm(tempDir, { recursive: true, force: true }, () => {});
+          fs.unlink(zipPath, () => {});
+        });
+      } catch (convError) {
+        // Cleanup on error
+        fs.rm(tempDir, { recursive: true, force: true }, () => {});
+        throw convError;
+      }
+    } catch (error) {
+      logger.error('Download backup failed:', error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : 'Download failed',
       });
     }
   });

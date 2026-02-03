@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Space, Page, TreeNode, BackupFormat, BackupLevel, api, BackupResult } from '../services/api';
+import { Space, Page, TreeNode, BackupLevel, api } from '../services/api';
 
 interface Props {
   space: Space;
@@ -27,12 +27,12 @@ function flattenTree(nodes: TreeNode[], parentId: string | null = null): Array<{
 }
 
 export default function BackupPanel({ space, pages, tree }: Props) {
-  const [format, setFormat] = useState<BackupFormat>('markdown');
+  const [formats, setFormats] = useState({ html: true, md: true, pdf: false });
   const [level, setLevel] = useState<BackupLevel>('space');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<BackupResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Get selectable items based on level
   const selectableItems = useMemo(() => {
@@ -100,40 +100,37 @@ export default function BackupPanel({ space, pages, tree }: Props) {
     setSelectedIds(new Set());
   }
 
-  async function handleBackup() {
+  async function handleDownload() {
+    if (!formats.html && !formats.md && !formats.pdf) {
+      setError('Select at least one format');
+      return;
+    }
+
     if (level !== 'space' && selectedIds.size === 0) {
-      setError('Please select at least one item to backup');
+      setError('Please select at least one item to download');
       return;
     }
 
     try {
       setLoading(true);
       setError(null);
-      setResult(null);
+      setSuccessMessage(null);
 
-      const backupResult = await api.startBackup({
-        spaceId: space.id,
-        spaceName: space.name,
-        format,
+      await api.downloadBackup(
+        space.id,
+        space.name,
+        formats,
         level,
-        targetIds: level === 'space' ? undefined : targetIds,
-      });
+        level === 'space' ? undefined : targetIds
+      );
 
-      setResult(backupResult);
+      setSuccessMessage(`Downloaded ${pageCount} page${pageCount !== 1 ? 's' : ''} as ZIP`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Backup failed');
+      setError(err instanceof Error ? err.message : 'Download failed');
     } finally {
       setLoading(false);
     }
   }
-
-  const formats: { value: BackupFormat; label: string }[] = [
-    { value: 'html', label: 'HTML' },
-    { value: 'markdown', label: 'MD' },
-    { value: 'pdf', label: 'PDF' },
-    { value: 'html+md', label: 'HTML+MD' },
-    { value: 'all', label: 'All' },
-  ];
 
   const levels: { value: BackupLevel; label: string }[] = [
     { value: 'space', label: 'Entire Space' },
@@ -143,7 +140,7 @@ export default function BackupPanel({ space, pages, tree }: Props) {
 
   return (
     <div className="card">
-      <div className="card-title">Backup</div>
+      <div className="card-title">Backup & Download</div>
 
       {/* Backup Level */}
       <div style={{ marginBottom: '0.75rem' }}>
@@ -238,33 +235,50 @@ export default function BackupPanel({ space, pages, tree }: Props) {
         </div>
       )}
 
-      {/* Output Format */}
+      {/* Output Format - Checkboxes */}
       <div style={{ marginBottom: '0.75rem' }}>
         <div style={{ fontSize: '0.75rem', marginBottom: '0.375rem', color: 'var(--color-text-secondary)' }}>
           Output Format
         </div>
-        <div className="format-selector">
-          {formats.map((f) => (
-            <button
-              key={f.value}
-              className={`format-btn ${format === f.value ? 'selected' : ''}`}
-              onClick={() => setFormat(f.value)}
+        <div className="download-controls" style={{ borderBottom: 'none', marginBottom: 0 }}>
+          <label className="format-checkbox">
+            <input
+              type="checkbox"
+              checked={formats.html}
+              onChange={(e) => setFormats({ ...formats, html: e.target.checked })}
               disabled={loading}
-            >
-              {f.label}
-            </button>
-          ))}
+            />
+            <span className="format-label">HTML</span>
+          </label>
+          <label className="format-checkbox">
+            <input
+              type="checkbox"
+              checked={formats.md}
+              onChange={(e) => setFormats({ ...formats, md: e.target.checked })}
+              disabled={loading}
+            />
+            <span className="format-label">MD</span>
+          </label>
+          <label className="format-checkbox">
+            <input
+              type="checkbox"
+              checked={formats.pdf}
+              onChange={(e) => setFormats({ ...formats, pdf: e.target.checked })}
+              disabled={loading}
+            />
+            <span className="format-label">PDF</span>
+          </label>
         </div>
       </div>
 
-      {/* Backup Button */}
+      {/* Download Button */}
       <button
         className="btn btn-primary"
         style={{ width: '100%' }}
-        onClick={handleBackup}
-        disabled={loading || pageCount === 0}
+        onClick={handleDownload}
+        disabled={loading || pageCount === 0 || (!formats.html && !formats.md && !formats.pdf)}
       >
-        {loading ? 'Backing up...' : `Backup ${pageCount} page${pageCount !== 1 ? 's' : ''}`}
+        {loading ? 'Downloading...' : `Download ${pageCount} page${pageCount !== 1 ? 's' : ''}`}
       </button>
 
       {error && (
@@ -273,46 +287,18 @@ export default function BackupPanel({ space, pages, tree }: Props) {
         </div>
       )}
 
-      {result && (
+      {successMessage && (
         <div
           style={{
             marginTop: '0.75rem',
-            padding: '0.75rem',
+            padding: '0.5rem',
             background: 'var(--color-bg-primary)',
             borderRadius: '6px',
             fontSize: '0.75rem',
+            color: 'var(--color-success)',
           }}
         >
-          <div
-            style={{
-              color: result.success ? 'var(--color-success)' : 'var(--color-error)',
-              fontWeight: 500,
-              marginBottom: '0.375rem',
-            }}
-          >
-            {result.success ? '✓ Backup completed!' : '✗ Backup failed'}
-          </div>
-
-          {result.outputPath && (
-            <div style={{ marginBottom: '0.375rem', wordBreak: 'break-all' }}>
-              <span style={{ color: 'var(--color-text-secondary)' }}>Output: </span>
-              <code style={{ fontSize: '0.625rem' }}>{result.outputPath}</code>
-            </div>
-          )}
-
-          {result.results && (
-            <div>
-              {result.results.html && (
-                <div>HTML: {result.results.html.htmlCount} files</div>
-              )}
-              {result.results.markdown && (
-                <div>Markdown: {result.results.markdown.mdCount} files</div>
-              )}
-              {result.results.pdf && (
-                <div>PDF: {result.results.pdf.pdfCount} files</div>
-              )}
-            </div>
-          )}
+          ✓ {successMessage}
         </div>
       )}
     </div>

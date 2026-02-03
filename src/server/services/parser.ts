@@ -278,8 +278,12 @@ function convertAcImageToImgForPdf(htmlContent: string, absoluteAttachmentsPath:
     const escapedFilename = filename.replace(/"/g, '&quot;');
     // URL encode filename for special characters (spaces, Korean, etc.)
     const encodedFilename = encodeURIComponent(filename);
-    // Use file:/// with three slashes for proper file URL format
-    const absoluteSrc = `file:///${normalizedPath}/${encodedFilename}`;
+    // Construct proper file:// URL - Linux paths start with /, Windows paths don't
+    // Linux: file:// + /path = file:///path (3 slashes total)
+    // Windows: file:/// + C:/path = file:///C:/path (3 slashes total)
+    const absoluteSrc = normalizedPath.startsWith('/')
+      ? `file://${normalizedPath}/${encodedFilename}`
+      : `file:///${normalizedPath}/${encodedFilename}`;
     return `<img src="${absoluteSrc}" alt="${escapedFilename}" style="max-width: 100%;" />`;
   });
 
@@ -297,7 +301,9 @@ function processConfluenceHtmlForPdf(html: string, absoluteAttachmentsPath: stri
   processed = convertExpandMacro(processed);
   processed = convertCalloutMacros(processed);
   // Use file:// paths for view-file links in PDF and show relative path text
-  processed = convertViewFileMacro(processed, `file:///${normalizedPath}`, true);
+  // Linux: file:// + /path, Windows: file:/// + C:/path
+  const fileUrlPrefix = normalizedPath.startsWith('/') ? `file://${normalizedPath}` : `file:///${normalizedPath}`;
+  processed = convertViewFileMacro(processed, fileUrlPrefix, true);
   processed = removeTocMacro(processed);
   return processed;
 }
