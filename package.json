@@ -1,6 +1,6 @@
 {
   "name": "atlassian-backup-tool-gui",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Confluence Cloud backup tool with React web UI",
   "type": "module",
   "engines": {
