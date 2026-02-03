@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
-import fs from 'fs';
 import { getConfluenceClient } from '../services/confluenceClient.js';
-import { parsePages, ParseResults } from '../services/parser.js';
+import { convertPages, ConvertResult } from '../services/parser.js';
 import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
+import { safeFilename, ensureDir } from '../utils/fileUtils.js';
 
 const logger = setupLogger('routes_backup');
 
@@ -19,23 +19,25 @@ interface BackupRequest {
   targetIds?: string[];  // Required when level is 'folder' or 'page'
 }
 
-// Map new format options to internal format for parsePages
-function mapFormat(format: BackupFormat): 'html' | 'markdown' | 'pdf' | 'both' | 'all' {
+// Map format string to format flags
+function parseFormats(format: BackupFormat): { html: boolean; markdown: boolean; pdf: boolean } {
   switch (format) {
     case 'html':
-      return 'html';
+      return { html: true, markdown: false, pdf: false };
     case 'markdown':
-      return 'markdown';
+      return { html: false, markdown: true, pdf: false };
     case 'pdf':
-      return 'pdf';
+      return { html: false, markdown: false, pdf: true };
     case 'html+md':
-      return 'both';
+      return { html: true, markdown: true, pdf: false };
     case 'html+pdf':
+      return { html: true, markdown: false, pdf: true };
     case 'md+pdf':
+      return { html: false, markdown: true, pdf: true };
     case 'all':
-      return 'all';
+      return { html: true, markdown: true, pdf: true };
     default:
-      return 'markdown';
+      return { html: false, markdown: true, pdf: false };
   }
 }
 
@@ -79,45 +81,39 @@ export function createBackupRouter(): Router {
         logger.info(`Filtered to ${pages.length} pages based on targetIds`);
       }
 
-      // Save raw JSON
-      const rawJsonPath = path.join(config.dataDir, `pages_from_space_${spaceId}.json`);
-      if (!fs.existsSync(config.dataDir)) {
-        fs.mkdirSync(config.dataDir, { recursive: true });
-      }
-      fs.writeFileSync(rawJsonPath, JSON.stringify(pages, null, 2), 'utf-8');
-      logger.info(`Saved raw JSON to ${rawJsonPath}`);
+      // Create output directory: {SPACE_ID}_{SPACE_NAME}
+      const safeSpaceName = safeFilename(spaceName || '');
+      const outputDirName = safeSpaceName
+        ? `${spaceId}_${safeSpaceName}`
+        : spaceId;
+      const outputRoot = path.join(config.dataDir, outputDirName);
+      ensureDir(outputRoot);
 
-      // Parse and convert
-      const outputRoot = path.join(config.dataDir, `space_${spaceId}`);
+      logger.info(`Output directory: ${outputRoot}`);
 
-      // Handle special format combinations
-      let results: ParseResults = {};
-      const internalFormat = mapFormat(format);
+      // Convert pages with specified formats
+      const formats = parseFormats(format);
+      const result: ConvertResult = await convertPages(pages, outputRoot, spaceName || '', formats);
 
-      if (format === 'html+pdf') {
-        // HTML + PDF only (no markdown)
-        const htmlResults = await parsePages(pages, outputRoot, 'html', spaceName || '');
-        const pdfResults = await parsePages(pages, outputRoot, 'pdf', spaceName || '');
-        results = {
-          html: htmlResults.html,
-          pdf: pdfResults.pdf,
-        };
-      } else if (format === 'md+pdf') {
-        // Markdown + PDF only (no html)
-        const mdResults = await parsePages(pages, outputRoot, 'markdown', spaceName || '');
-        const pdfResults = await parsePages(pages, outputRoot, 'pdf', spaceName || '');
-        results = {
-          markdown: mdResults.markdown,
-          pdf: pdfResults.pdf,
-        };
-      } else {
-        results = await parsePages(pages, outputRoot, internalFormat, spaceName || '');
-      }
+      logger.info(
+        `Backup complete: ${result.pagesProcessed} pages, ` +
+        `${result.htmlCount} HTML, ${result.mdCount} MD, ${result.pdfCount} PDF, ` +
+        `${result.attachmentsDownloaded} attachments`
+      );
 
       res.json({
         success: true,
         outputPath: outputRoot,
-        results,
+        results: {
+          pagesProcessed: result.pagesProcessed,
+          html: result.htmlCount,
+          markdown: result.mdCount,
+          pdf: result.pdfCount,
+        },
+        attachments: {
+          downloaded: result.attachmentsDownloaded,
+          failed: result.attachmentsFailed,
+        },
       });
     } catch (error) {
       logger.error('Backup failed:', error);

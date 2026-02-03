@@ -1,12 +1,24 @@
 import axios, { AxiosInstance } from 'axios';
+import path from 'path';
+import { createWriteStream } from 'fs';
+import { pipeline } from 'stream/promises';
 import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
+import { ensureDir } from '../utils/fileUtils.js';
 import type {
   Space,
   Page,
   ConfluenceSpacesResponse,
   ConfluencePagesResponse,
 } from '../types/confluence.js';
+
+export interface Attachment {
+  id: string;
+  title: string;
+  downloadLink: string;
+  mediaType: string;
+  fileSize: number;
+}
 
 const logger = setupLogger('confluence_client');
 
@@ -111,6 +123,88 @@ export class ConfluenceClient {
 
     logger.info(`Found ${pages.length} pages in space ${spaceId}.`);
     return pages;
+  }
+
+  /**
+   * Get attachments for a specific page
+   * Uses Confluence REST API v1 as v2 doesn't support attachments endpoint
+   */
+  async getAttachments(pageId: string): Promise<Attachment[]> {
+    logger.info(`Fetching attachments for page ${pageId}...`);
+    const attachments: Attachment[] = [];
+
+    try {
+      const response = await this.client.get(`/content/${pageId}/child/attachment`, {
+        baseURL: `https://${config.domain}/wiki/rest/api`,
+        params: { limit: 100 },
+      });
+
+      for (const item of response.data.results) {
+        attachments.push({
+          id: item.id,
+          title: item.title,
+          downloadLink: item._links?.download || '',
+          mediaType: item.metadata?.mediaType || 'application/octet-stream',
+          fileSize: item.extensions?.fileSize || 0,
+        });
+      }
+
+      logger.info(`Found ${attachments.length} attachments for page ${pageId}.`);
+    } catch (error) {
+      logger.warn(`Failed to fetch attachments for page ${pageId}: ${error}`);
+    }
+
+    return attachments;
+  }
+
+  /**
+   * Download all attachments for a page to a local directory
+   * @param pageId - The page ID
+   * @param outputDir - Directory to save attachments (e.g., 'data/attachments/{pageId}')
+   * @returns Object with counts of downloaded and failed files
+   */
+  async downloadAttachments(
+    pageId: string,
+    outputDir: string
+  ): Promise<{ downloaded: number; failed: number }> {
+    const attachments = await this.getAttachments(pageId);
+
+    if (attachments.length === 0) {
+      return { downloaded: 0, failed: 0 };
+    }
+
+    ensureDir(outputDir);
+
+    let downloaded = 0;
+    let failed = 0;
+
+    for (const attachment of attachments) {
+      if (!attachment.downloadLink) {
+        logger.warn(`No download link for attachment: ${attachment.title}`);
+        failed++;
+        continue;
+      }
+
+      const filePath = path.join(outputDir, attachment.title);
+
+      try {
+        // Download using full URL with authentication
+        const downloadUrl = `https://${config.domain}/wiki${attachment.downloadLink}`;
+        const response = await this.client.get(downloadUrl, {
+          baseURL: '', // Override baseURL for direct download
+          responseType: 'stream',
+        });
+
+        await pipeline(response.data, createWriteStream(filePath));
+        downloaded++;
+        logger.info(`Downloaded: ${attachment.title}`);
+      } catch (error) {
+        logger.warn(`Failed to download ${attachment.title}: ${error}`);
+        failed++;
+      }
+    }
+
+    return { downloaded, failed };
   }
 }
 

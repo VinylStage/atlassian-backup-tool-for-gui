@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { createSpacesRouter } from './spaces.js';
 import { createPagesRouter } from './pages.js';
 import { createBackupRouter } from './backup.js';
+import { createAttachmentsRouter } from './attachments.js';
 
 export function createApiRouter(): Router {
   const router = Router();
@@ -9,6 +10,7 @@ export function createApiRouter(): Router {
   router.use('/spaces', createSpacesRouter());
   router.use('/pages', createPagesRouter());
   router.use('/backup', createBackupRouter());
+  router.use('/attachments', createAttachmentsRouter());
 
   router.get('/health', (_req, res) => {
     res.json({ status: 'ok' });

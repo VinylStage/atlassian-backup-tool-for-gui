@@ -6,6 +6,7 @@ import hljs from 'highlight.js';
 import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
 import { safeFilename, ensureDir, writeFile, writeJson } from '../utils/fileUtils.js';
+import { getConfluenceClient } from './confluenceClient.js';
 import type { Page } from '../types/confluence.js';
 
 const logger = setupLogger('parser');
@@ -27,9 +28,53 @@ const turndownService = new TurndownService({
   codeBlockStyle: 'fenced',
 });
 
-// Confluence code macro regex
+// Override escape function to be less aggressive
+turndownService.escape = (str: string): string => {
+  return str.replace(/\\/g, '\\\\');
+};
+
+// ============================================================================
+// Confluence Macro Regexes
+// ============================================================================
+
+// Code macro
 const CODE_MACRO_REGEX =
   /<ac:structured-macro[^>]*ac:name="code"[^>]*>[\s\S]*?(?:<ac:parameter[^>]*ac:name="language"[^>]*>\s*([^<]+?)\s*<\/ac:parameter>)?[\s\S]*?<ac:plain-text-body><!\[CDATA\[([\s\S]*?)\]\]><\/ac:plain-text-body>[\s\S]*?<\/ac:structured-macro>/g;
+
+// Image macros
+const AC_IMAGE_URL_REGEX =
+  /<ac:image[^>]*>[\s\S]*?<ri:url\s+ri:value="([^"]+)"[^/]*\/>[\s\S]*?<\/ac:image>/g;
+const AC_IMAGE_ATTACHMENT_REGEX =
+  /<ac:image[^>]*>[\s\S]*?<ri:attachment\s+ri:filename="([^"]+)"[^/]*\/>[\s\S]*?<\/ac:image>/g;
+
+// Expand macro
+const EXPAND_MACRO_REGEX =
+  /<ac:structured-macro[^>]*ac:name="expand"[^>]*>[\s\S]*?(?:<ac:parameter[^>]*ac:name="title"[^>]*>([^<]*)<\/ac:parameter>)?[\s\S]*?<ac:rich-text-body>([\s\S]*?)<\/ac:rich-text-body>[\s\S]*?<\/ac:structured-macro>/g;
+
+// TOC macro
+const TOC_MACRO_REGEX =
+  /<ac:structured-macro[^>]*ac:name="toc"[^>]*>[\s\S]*?<\/ac:structured-macro>/g;
+
+// View-file macro
+const VIEW_FILE_MACRO_REGEX =
+  /<ac:structured-macro[^>]*ac:name="view-file"[^>]*>[\s\S]*?<ri:attachment\s+ri:filename="([^"]+)"[^/]*\/>[\s\S]*?<\/ac:structured-macro>/g;
+
+// Language aliases for highlight.js
+const LANGUAGE_ALIASES: Record<string, string> = {
+  'c#': 'csharp',
+  'c++': 'cpp',
+  'js': 'javascript',
+  'ts': 'typescript',
+  'py': 'python',
+  'rb': 'ruby',
+  'yml': 'yaml',
+  'sh': 'bash',
+  'shell': 'bash',
+};
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 function escapeHtml(s: string): string {
   return s
@@ -40,81 +85,238 @@ function escapeHtml(s: string): string {
     .replace(/'/g, '&#039;');
 }
 
-function buildPageLookup(pages: Page[]): Map<string, string> {
-  const lookup = new Map<string, string>();
+// Build page map (id → Page)
+function buildPageMap(pages: Page[]): Map<string, Page> {
+  const map = new Map<string, Page>();
   for (const page of pages) {
-    lookup.set(page.id, page.title);
+    map.set(page.id, page);
   }
-  return lookup;
+  return map;
 }
 
+// Get ancestor chain from root to current page
+function getAncestorChain(pageId: string, pageMap: Map<string, Page>): Array<{ id: string; title: string }> {
+  const ancestors: Array<{ id: string; title: string }> = [];
+  let currentId: string | null = pageId;
+
+  while (currentId) {
+    const page = pageMap.get(currentId);
+    if (!page) break;
+    ancestors.unshift({ id: page.id, title: page.title });
+    currentId = page.parentId;
+  }
+
+  return ancestors;
+}
+
+// Build hierarchical output path for a page
+function buildPageOutputPath(page: Page, outputRoot: string, pageMap: Map<string, Page>): string {
+  const ancestors = getAncestorChain(page.id, pageMap);
+  let pagePath = path.join(outputRoot, 'pages');
+
+  for (const ancestor of ancestors) {
+    const folderName = `${ancestor.id}_${safeFilename(ancestor.title)}`;
+    pagePath = path.join(pagePath, folderName);
+  }
+
+  ensureDir(pagePath);
+  return pagePath;
+}
+
+// ============================================================================
+// Confluence Macro Converters
+// ============================================================================
+
+// Convert code macros to HTML with syntax highlighting
+export function confluenceCodeMacroToHtml(htmlContent: string): string {
+  return htmlContent.replace(
+    CODE_MACRO_REGEX,
+    (_match: string, lang: string | undefined, body: string | undefined) => {
+      const language = (lang || '').trim().toLowerCase();
+      const code = (body || '').replace(/\r\n/g, '\n');
+      const mappedLang = LANGUAGE_ALIASES[language] || language;
+
+      let highlighted: string;
+      try {
+        if (mappedLang && hljs.getLanguage(mappedLang)) {
+          highlighted = hljs.highlight(code, { language: mappedLang }).value;
+        } else if (language) {
+          highlighted = hljs.highlightAuto(code).value;
+        } else {
+          highlighted = escapeHtml(code);
+        }
+      } catch {
+        highlighted = escapeHtml(code);
+      }
+
+      const langClass = mappedLang ? ` class="language-${mappedLang}"` : '';
+      return `<pre><code${langClass}>${highlighted}</code></pre>`;
+    }
+  );
+}
+
+// Convert code macros to markdown fenced code blocks
 export function confluenceCodeMacroToFence(htmlContent: string): string {
   const codeBlocks: string[] = [];
 
-  // Step 1: Extract code macros and replace with placeholders
-  // This prevents TurndownService from escaping backticks
   const withPlaceholders = htmlContent.replace(
     CODE_MACRO_REGEX,
     (_match: string, lang: string | undefined, body: string | undefined) => {
       const language = (lang || '').trim();
       const code = (body || '').replace(/\r\n/g, '\n').trimEnd();
-      const fence = '```';
       const block = language
-        ? `\n${fence}${language}\n${code}\n${fence}\n`
-        : `\n${fence}\n${code}\n${fence}\n`;
+        ? `\n\`\`\`${language}\n${code}\n\`\`\`\n`
+        : `\n\`\`\`\n${code}\n\`\`\`\n`;
       codeBlocks.push(block);
-      return `___CODE_BLOCK_PLACEHOLDER_${codeBlocks.length - 1}___`;
+      return `<span>CODEBLOCKPLACEHOLDER${codeBlocks.length - 1}ENDCODEBLOCK</span>`;
     }
   );
 
-  // Step 2: Convert remaining HTML to Markdown
   let markdown = turndownService.turndown(withPlaceholders);
 
-  // Step 3: Restore code blocks from placeholders
   codeBlocks.forEach((block, i) => {
-    markdown = markdown.replace(`___CODE_BLOCK_PLACEHOLDER_${i}___`, block);
+    markdown = markdown.replace(`CODEBLOCKPLACEHOLDER${i}ENDCODEBLOCK`, block);
   });
 
   return markdown;
 }
 
-function buildOutputDir(
-  page: Page,
-  outputRoot: string,
-  spaceName: string,
-  pageLookup: Map<string, string>
-): string {
-  const spaceId = page.spaceId;
-  const parentId = page.parentId;
+// Convert image macros to HTML img tags
+export function convertAcImageToImg(htmlContent: string, attachmentsBasePath: string = ''): string {
+  // External URL images
+  let content = htmlContent.replace(AC_IMAGE_URL_REGEX, (_match, url) => {
+    const escapedUrl = url.replace(/"/g, '&quot;');
+    return `<img src="${escapedUrl}" alt="image" style="max-width: 100%;" loading="lazy" />`;
+  });
 
-  const spaceSafe = safeFilename(spaceName);
-  const spaceDirName = spaceSafe ? `space-${spaceId}_${spaceSafe}` : `space-${spaceId}`;
+  // Attachment images
+  content = content.replace(AC_IMAGE_ATTACHMENT_REGEX, (_match, filename) => {
+    const escapedFilename = filename.replace(/"/g, '&quot;');
+    const src = attachmentsBasePath
+      ? `${attachmentsBasePath}/${encodeURIComponent(filename)}`
+      : `./attachments/${encodeURIComponent(filename)}`;
+    return `<img src="${src}" alt="${escapedFilename}" style="max-width: 100%;" loading="lazy" />`;
+  });
 
-  let folderDir: string;
-  if (parentId) {
-    const parentTitle = safeFilename(pageLookup.get(parentId) || '');
-    const folderName = parentTitle
-      ? `folder-${parentId}_${parentTitle}`
-      : `folder-${parentId}`;
-    folderDir = path.join(outputRoot, spaceDirName, folderName);
-  } else {
-    folderDir = path.join(outputRoot, spaceDirName, 'folder-root');
-  }
-
-  ensureDir(folderDir);
-  return folderDir;
+  return content;
 }
+
+// Convert expand macro to details/summary
+function convertExpandMacro(html: string): string {
+  return html.replace(EXPAND_MACRO_REGEX, (_m, title, body) => {
+    const safeTitle = title ? escapeHtml(title) : 'Details';
+    return `<details><summary>${safeTitle}</summary>${body || ''}</details>`;
+  });
+}
+
+// Convert callout macros (info, tip, note, warning, panel)
+function convertCalloutMacros(html: string): string {
+  const types = ['info', 'tip', 'note', 'warning', 'panel'];
+  for (const type of types) {
+    const regex = new RegExp(
+      `<ac:structured-macro[^>]*ac:name="${type}"[^>]*>[\\s\\S]*?<ac:rich-text-body>([\\s\\S]*?)<\\/ac:rich-text-body>[\\s\\S]*?<\\/ac:structured-macro>`,
+      'g'
+    );
+    html = html.replace(regex, (_m, body) => {
+      return `<div class="callout callout-${type}">${body || ''}</div>`;
+    });
+  }
+  return html;
+}
+
+// Remove TOC macro (not needed in local HTML)
+function removeTocMacro(html: string): string {
+  return html.replace(TOC_MACRO_REGEX, '<!-- TOC removed -->');
+}
+
+// Convert view-file macro to download link
+function convertViewFileMacro(html: string, attachmentsPath: string = './attachments'): string {
+  return html.replace(VIEW_FILE_MACRO_REGEX, (_m, filename) => {
+    const escapedFilename = escapeHtml(filename);
+    const href = `${attachmentsPath}/${encodeURIComponent(filename)}`;
+    return `<a href="${href}" class="attachment-link">📎 ${escapedFilename}</a>`;
+  });
+}
+
+// Process all Confluence macros
+function processConfluenceHtml(html: string, attachmentsPath: string): string {
+  let processed = html;
+  processed = confluenceCodeMacroToHtml(processed);
+  processed = convertAcImageToImg(processed, attachmentsPath);
+  processed = convertExpandMacro(processed);
+  processed = convertCalloutMacros(processed);
+  processed = convertViewFileMacro(processed, attachmentsPath);
+  processed = removeTocMacro(processed);
+  return processed;
+}
+
+// Convert image macros for PDF (absolute file:// paths for images, relative for links)
+function convertAcImageToImgForPdf(htmlContent: string, absoluteAttachmentsPath: string): string {
+  // External URL images - keep as-is
+  let content = htmlContent.replace(AC_IMAGE_URL_REGEX, (_match, url) => {
+    const escapedUrl = url.replace(/"/g, '&quot;');
+    return `<img src="${escapedUrl}" alt="image" style="max-width: 100%;" />`;
+  });
+
+  // Attachment images - use file:// absolute path
+  content = content.replace(AC_IMAGE_ATTACHMENT_REGEX, (_match, filename) => {
+    const escapedFilename = filename.replace(/"/g, '&quot;');
+    const absoluteSrc = `file://${absoluteAttachmentsPath}/${filename}`;
+    return `<img src="${absoluteSrc}" alt="${escapedFilename}" style="max-width: 100%;" />`;
+  });
+
+  return content;
+}
+
+// Process Confluence macros for PDF (images with absolute paths, links with relative paths)
+function processConfluenceHtmlForPdf(html: string, absoluteAttachmentsPath: string): string {
+  let processed = html;
+  processed = confluenceCodeMacroToHtml(processed);
+  processed = convertAcImageToImgForPdf(processed, absoluteAttachmentsPath);
+  processed = convertExpandMacro(processed);
+  processed = convertCalloutMacros(processed);
+  // Keep relative paths for view-file links
+  processed = convertViewFileMacro(processed, './attachments');
+  processed = removeTocMacro(processed);
+  return processed;
+}
+
+// ============================================================================
+// HTML Document Builder
+// ============================================================================
 
 function buildHtmlDoc(
   page: Page,
   spaceName: string,
-  pageLookup: Map<string, string>
+  pageMap: Map<string, Page>,
+  attachmentsDir: string = './attachments'
 ): string {
   const titleSafe = escapeHtml(page.title || '');
-  const bodyHtml = page.body?.storage?.value || '';
+  const bodyHtml = processConfluenceHtml(page.body?.storage?.value || '', attachmentsDir);
+  return buildHtmlDocInternal(page, spaceName, pageMap, bodyHtml);
+}
+
+// Build HTML for PDF with absolute file:// paths for images
+function buildHtmlDocForPdf(
+  page: Page,
+  spaceName: string,
+  pageMap: Map<string, Page>,
+  absoluteAttachmentsPath: string
+): string {
+  const bodyHtml = processConfluenceHtmlForPdf(page.body?.storage?.value || '', absoluteAttachmentsPath);
+  return buildHtmlDocInternal(page, spaceName, pageMap, bodyHtml);
+}
+
+function buildHtmlDocInternal(
+  page: Page,
+  spaceName: string,
+  pageMap: Map<string, Page>,
+  bodyHtml: string
+): string {
+  const titleSafe = escapeHtml(page.title || '');
   const spaceNameSafe = escapeHtml(spaceName);
-  const parentName = page.parentId ? escapeHtml(pageLookup.get(page.parentId) || '') : '';
-  const folderDisplay = page.parentId
+  const parentName = page.parentId ? escapeHtml(pageMap.get(page.parentId)?.title || '') : '';
+  const parentDisplay = page.parentId
     ? `${page.parentId} (${parentName || 'Unknown'})`
     : '- (Root)';
   const spaceDisplay = `${page.spaceId} (${spaceNameSafe || 'Unknown'})`;
@@ -123,107 +325,42 @@ function buildHtmlDoc(
 <html lang="ko">
 <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${titleSafe}</title>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <style>
-        :root {
-            color-scheme: light dark;
-        }
-        body {
-            font-family: sans-serif;
-            margin: 0;
-            padding: 2rem 1rem;
-            background: #f5f5f7;
-            color: #111111;
-        }
-        .page-wrapper {
-            max-width: 960px;
-            margin: 0 auto;
-        }
-        .page-header {
-            margin-bottom: 1.5rem;
-        }
-        h1 {
-            font-size: 1.9rem;
-            margin: 0 0 0.5rem 0;
-        }
-        .meta {
-            font-size: 0.85rem;
-            color: #666;
-        }
-        .meta span {
-            display: inline-block;
-            margin-right: 1rem;
-        }
-        .card {
-            background: #fafafa;
-            color: #111111;
-            border-radius: 10px;
-            padding: 1.5rem 1.75rem;
-            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
-        }
-        .card :first-child {
-            margin-top: 0;
-        }
-        .card :last-child {
-            margin-bottom: 0;
-        }
-        hr {
-            border: none;
-            border-top: 1px solid #e0e0e0;
-            margin: 1.5rem 0;
-        }
-        code {
-            background: #f2f2f5;
-            padding: 0.1rem 0.25rem;
-            border-radius: 4px;
-            font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-            font-size: 0.9em;
-        }
-        pre code {
-            display: block;
-            padding: 0.75rem 1rem;
-            overflow-x: auto;
-            background: #1e1e1e;
-            color: #eaeaea;
-        }
-        a {
-            color: #0070f3;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-        footer {
-            margin-top: 2rem;
-            font-size: 0.8rem;
-            color: #888;
-            text-align: center;
-        }
-        h1, h2, h3, h4, h5, h6 {
-            color: #111111
-        }
+      /* Callout styles */
+      .callout { padding: 1rem; border-radius: 8px; margin: 1rem 0; border-left: 4px solid; }
+      .callout-info { background-color: #e7f3ff; border-left-color: #0066cc; }
+      .callout-tip { background-color: #e6f7e6; border-left-color: #28a745; }
+      .callout-note { background-color: #fff8e6; border-left-color: #ffc107; }
+      .callout-warning { background-color: #ffebe6; border-left-color: #dc3545; }
+      .callout-panel { background-color: #f5f5f7; border-left-color: #6c757d; }
+      .attachment-link { display: inline-flex; align-items: center; gap: 0.25rem; color: #0066cc; }
+      details { margin: 1rem 0; }
+      details summary { cursor: pointer; font-weight: 600; padding: 0.5rem; background: #f5f5f7; border-radius: 4px; }
+      details[open] summary { margin-bottom: 0.5rem; }
     </style>
 </head>
-<body>
-    <div class="page-wrapper">
-        <header class="page-header">
-            <h1>${titleSafe}</h1>
-            <div class="meta">
+<body class="bg-gray-50 text-gray-900 p-8">
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-6">
+            <h1 class="text-3xl font-bold mb-2">${titleSafe}</h1>
+            <div class="text-sm text-gray-500 flex flex-wrap gap-4">
                 <span><strong>ID</strong> ${page.id}</span>
                 <span><strong>Space</strong> ${spaceDisplay}</span>
-                <span><strong>Folder</strong> ${folderDisplay}</span>
+                <span><strong>Parent</strong> ${parentDisplay}</span>
                 <span><strong>Status</strong> ${page.status}</span>
                 <span><strong>Created</strong> ${page.createdAt}</span>
             </div>
         </header>
 
-        <main class="card">
+        <main class="prose max-w-none bg-white rounded-xl p-6 shadow-sm">
 ${bodyHtml}
         </main>
 
-        <footer>
-            <hr />
-            <div>Exported from Confluence space ${spaceDisplay} · Local backup view</div>
+        <footer class="mt-8 text-center text-sm text-gray-400 border-t pt-4">
+            Exported from Confluence space ${spaceDisplay} · Local backup view
         </footer>
     </div>
 </body>
@@ -231,50 +368,147 @@ ${bodyHtml}
 `;
 }
 
+// ============================================================================
+// Conversion Functions (New Hierarchical Structure)
+// ============================================================================
+
+export interface ConvertResult {
+  pagesProcessed: number;
+  htmlCount: number;
+  mdCount: number;
+  pdfCount: number;
+  attachmentsDownloaded: number;
+  attachmentsFailed: number;
+}
+
+export async function convertPages(
+  pages: Page[],
+  outputRoot: string,
+  spaceName: string,
+  formats: { html?: boolean; markdown?: boolean; pdf?: boolean }
+): Promise<ConvertResult> {
+  const pageMap = buildPageMap(pages);
+  const client = getConfluenceClient();
+
+  // Create _meta directory and save pages.json
+  const metaDir = path.join(outputRoot, '_meta');
+  ensureDir(metaDir);
+  writeJson(path.join(metaDir, 'pages.json'), pages);
+  logger.info(`Saved ${pages.length} pages to _meta/pages.json`);
+
+  let pagesProcessed = 0;
+  let htmlCount = 0;
+  let mdCount = 0;
+  let pdfCount = 0;
+  let attachmentsDownloaded = 0;
+  let attachmentsFailed = 0;
+
+  // Lazy load puppeteer only if PDF is needed
+  let browser: Awaited<ReturnType<typeof import('puppeteer').launch>> | null = null;
+  if (formats.pdf) {
+    const puppeteer = await import('puppeteer');
+    browser = await puppeteer.default.launch({ headless: true });
+  }
+
+  try {
+    for (const page of pages) {
+      if (!page.id) {
+        logger.warn('[SKIP] No id - skipping this item');
+        continue;
+      }
+
+      const pageDir = buildPageOutputPath(page, outputRoot, pageMap);
+      const attachmentsDir = path.join(pageDir, 'attachments');
+
+      // Download attachments
+      ensureDir(attachmentsDir);
+      const attachResult = await client.downloadAttachments(page.id, attachmentsDir);
+      attachmentsDownloaded += attachResult.downloaded;
+      attachmentsFailed += attachResult.failed;
+
+      // Save meta.json
+      writeJson(path.join(pageDir, 'meta.json'), page);
+
+      const bodyStorage = page.body?.storage?.value;
+      if (!bodyStorage) {
+        logger.warn(`[WARN] No body.storage.value (id=${page.id}) - meta only`);
+        pagesProcessed++;
+        continue;
+      }
+
+      // Generate HTML
+      if (formats.html) {
+        const htmlDoc = buildHtmlDoc(page, spaceName, pageMap, './attachments');
+        writeFile(path.join(pageDir, 'page.html'), htmlDoc);
+        htmlCount++;
+      }
+
+      // Generate Markdown
+      if (formats.markdown) {
+        const mdBody = confluenceCodeMacroToFence(bodyStorage);
+        const parentName = page.parentId ? pageMap.get(page.parentId)?.title || '' : '';
+        const parentInfo = page.parentId
+          ? `${page.parentId} (${parentName || 'Unknown'})`
+          : '- (Root)';
+        const spaceInfo = `${page.spaceId} (${spaceName || 'Unknown'})`;
+
+        let mdContent = `# ${page.title}\n\n`;
+        mdContent += `<!-- id: ${page.id} | space: ${spaceInfo} | parent: ${parentInfo} | status: ${page.status} -->\n\n`;
+        mdContent += mdBody;
+
+        writeFile(path.join(pageDir, 'page.md'), mdContent);
+        mdCount++;
+      }
+
+      // Generate PDF
+      if (formats.pdf && browser) {
+        try {
+          // Use absolute file:// path for images in PDF
+          const absoluteAttachmentsPath = path.resolve(attachmentsDir);
+          const htmlDoc = buildHtmlDocForPdf(page, spaceName, pageMap, absoluteAttachmentsPath);
+          const browserPage = await browser.newPage();
+          await browserPage.setContent(htmlDoc, { waitUntil: 'networkidle0' });
+          await browserPage.pdf({
+            path: path.join(pageDir, 'page.pdf'),
+            format: 'A4',
+            margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
+            printBackground: true,
+          });
+          await browserPage.close();
+          pdfCount++;
+        } catch (e) {
+          logger.warn(`[WARN] PDF conversion failed (id=${page.id}): ${e}`);
+        }
+      }
+
+      pagesProcessed++;
+      logger.info(`Processed: ${page.id}_${safeFilename(page.title)}`);
+    }
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+
+  return {
+    pagesProcessed,
+    htmlCount,
+    mdCount,
+    pdfCount,
+    attachmentsDownloaded,
+    attachmentsFailed,
+  };
+}
+
+// ============================================================================
+// Legacy Functions (kept for backward compatibility)
+// ============================================================================
+
 export interface HtmlResult {
   htmlCount: number;
   jsonCount: number;
-}
-
-export function convertToHtml(
-  pages: Page[],
-  outputRoot: string,
-  spaceName: string
-): HtmlResult {
-  ensureDir(outputRoot);
-  const pageLookup = buildPageLookup(pages);
-
-  let htmlCount = 0;
-  let jsonCount = 0;
-
-  for (const page of pages) {
-    if (!page.id) {
-      logger.warn('[SKIP] No id - skipping this item');
-      continue;
-    }
-
-    const safeTitle = safeFilename(page.title);
-    const outDir = buildOutputDir(page, outputRoot, spaceName, pageLookup);
-
-    // Save meta JSON
-    const metaPath = path.join(outDir, `${page.id}_${safeTitle}.json`);
-    writeJson(metaPath, page);
-    jsonCount++;
-
-    const bodyHtml = page.body?.storage?.value;
-    if (!bodyHtml) {
-      logger.warn(`[WARN] No body.storage.value - HTML skipped, meta only saved (id=${page.id})`);
-      continue;
-    }
-
-    // Save HTML
-    const htmlDoc = buildHtmlDoc(page, spaceName, pageLookup);
-    const htmlPath = path.join(outDir, `${page.id}_${safeTitle}.html`);
-    writeFile(htmlPath, htmlDoc);
-    htmlCount++;
-  }
-
-  return { htmlCount, jsonCount };
+  attachmentsDownloaded: number;
+  attachmentsFailed: number;
 }
 
 export interface MarkdownResult {
@@ -282,134 +516,9 @@ export interface MarkdownResult {
   skippedCount: number;
 }
 
-export function convertToMarkdown(
-  pages: Page[],
-  outputRoot: string,
-  spaceName: string
-): MarkdownResult {
-  ensureDir(outputRoot);
-  const pageLookup = buildPageLookup(pages);
-
-  let mdCount = 0;
-  let skippedCount = 0;
-
-  for (const page of pages) {
-    if (!page.id) {
-      logger.warn('[SKIP] No id - skipping this item');
-      skippedCount++;
-      continue;
-    }
-
-    const bodyStorage = page.body?.storage?.value;
-    if (!bodyStorage) {
-      logger.warn(`[SKIP] No body (id=${page.id})`);
-      skippedCount++;
-      continue;
-    }
-
-    const safeTitle = safeFilename(page.title);
-    const mdBody = confluenceCodeMacroToFence(bodyStorage);
-
-    const spaceSafe = safeFilename(spaceName);
-    const spaceDirName = spaceSafe
-      ? `space-${page.spaceId}_${spaceSafe}`
-      : `space-${page.spaceId}`;
-
-    let fileDir: string;
-    if (page.parentId) {
-      const parentTitle = safeFilename(pageLookup.get(page.parentId) || '');
-      const folderName = parentTitle
-        ? `folder-${page.parentId}_${parentTitle}`
-        : `folder-${page.parentId}`;
-      fileDir = path.join(outputRoot, spaceDirName, folderName);
-    } else {
-      fileDir = path.join(outputRoot, spaceDirName, 'folder-root');
-    }
-
-    ensureDir(fileDir);
-    const filePath = path.join(fileDir, `${page.id}_${safeTitle}.md`);
-
-    const parentName = page.parentId ? pageLookup.get(page.parentId) || '' : '';
-    const folderInfo = page.parentId
-      ? `${page.parentId} (${parentName || 'Unknown'})`
-      : '- (Root)';
-    const spaceInfo = `${page.spaceId} (${spaceName || 'Unknown'})`;
-
-    let content = `# ${page.title}\n\n`;
-    content += `<!-- id: ${page.id} | space: ${spaceInfo} | folder: ${folderInfo} | parent_type: ${page.parentType} -->\n\n`;
-    content += mdBody;
-
-    writeFile(filePath, content);
-    mdCount++;
-    logger.info(`Written: ${path.basename(filePath)}`);
-  }
-
-  return { mdCount, skippedCount };
-}
-
 export interface PdfResult {
   pdfCount: number;
   skippedCount: number;
-}
-
-export async function convertToPdf(
-  pages: Page[],
-  outputRoot: string,
-  spaceName: string
-): Promise<PdfResult> {
-  // Lazy import puppeteer
-  const puppeteer = await import('puppeteer');
-
-  ensureDir(outputRoot);
-  const pageLookup = buildPageLookup(pages);
-
-  let pdfCount = 0;
-  let skippedCount = 0;
-
-  const browser = await puppeteer.default.launch({ headless: true });
-
-  try {
-    for (const page of pages) {
-      if (!page.id) {
-        logger.warn('[SKIP] No id - skipping this item');
-        skippedCount++;
-        continue;
-      }
-
-      const bodyHtml = page.body?.storage?.value;
-      if (!bodyHtml) {
-        logger.warn(`[SKIP] No body (id=${page.id})`);
-        skippedCount++;
-        continue;
-      }
-
-      const safeTitle = safeFilename(page.title);
-      const outDir = buildOutputDir(page, outputRoot, spaceName, pageLookup);
-      const htmlDoc = buildHtmlDoc(page, spaceName, pageLookup);
-      const pdfPath = path.join(outDir, `${page.id}_${safeTitle}.pdf`);
-
-      try {
-        const browserPage = await browser.newPage();
-        await browserPage.setContent(htmlDoc, { waitUntil: 'networkidle0' });
-        await browserPage.pdf({
-          path: pdfPath,
-          format: 'A4',
-          margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
-          printBackground: true,
-        });
-        await browserPage.close();
-        pdfCount++;
-        logger.info(`Written: ${path.basename(pdfPath)}`);
-      } catch (e) {
-        logger.warn(`[WARN] PDF conversion failed (id=${page.id}): ${e}`);
-        skippedCount++;
-      }
-    }
-  } finally {
-    await browser.close();
-  }
-
-  return { pdfCount, skippedCount };
 }
 
 export interface ParseResults {
@@ -418,47 +527,59 @@ export interface ParseResults {
   pdf?: PdfResult;
 }
 
+// Legacy parsePages function - now uses new convertPages internally
 export async function parsePages(
   pages: Page[],
   outputRoot: string,
   outputFormat: 'html' | 'markdown' | 'pdf' | 'both' | 'all',
   spaceName: string
 ): Promise<ParseResults> {
+  const formats = {
+    html: ['html', 'both', 'all'].includes(outputFormat),
+    markdown: ['markdown', 'both', 'all'].includes(outputFormat),
+    pdf: ['pdf', 'all'].includes(outputFormat),
+  };
+
+  const result = await convertPages(pages, outputRoot, spaceName, formats);
+
   const results: ParseResults = {};
 
-  if (['html', 'both', 'all'].includes(outputFormat)) {
-    const htmlOutput = path.join(outputRoot, 'html');
-    const htmlResult = convertToHtml(pages, htmlOutput, spaceName);
-    results.html = htmlResult;
-    logger.info(`HTML conversion complete: ${htmlResult.htmlCount} HTML, ${htmlResult.jsonCount} JSON`);
+  if (formats.html) {
+    results.html = {
+      htmlCount: result.htmlCount,
+      jsonCount: result.pagesProcessed,
+      attachmentsDownloaded: result.attachmentsDownloaded,
+      attachmentsFailed: result.attachmentsFailed,
+    };
   }
 
-  if (['markdown', 'both', 'all'].includes(outputFormat)) {
-    const mdOutput = path.join(outputRoot, 'markdown');
-    const mdResult = convertToMarkdown(pages, mdOutput, spaceName);
-    results.markdown = mdResult;
-    logger.info(`Markdown conversion complete: ${mdResult.mdCount} MD, ${mdResult.skippedCount} skipped`);
+  if (formats.markdown) {
+    results.markdown = {
+      mdCount: result.mdCount,
+      skippedCount: result.pagesProcessed - result.mdCount,
+    };
   }
 
-  if (['pdf', 'all'].includes(outputFormat)) {
-    const pdfOutput = path.join(outputRoot, 'pdf');
-    const pdfResult = await convertToPdf(pages, pdfOutput, spaceName);
-    results.pdf = pdfResult;
-    logger.info(`PDF conversion complete: ${pdfResult.pdfCount} PDF, ${pdfResult.skippedCount} skipped`);
+  if (formats.pdf) {
+    results.pdf = {
+      pdfCount: result.pdfCount,
+      skippedCount: result.pagesProcessed - result.pdfCount,
+    };
   }
 
   return results;
 }
 
-// For preview in web UI - convert Confluence storage to clean HTML/Markdown
+// ============================================================================
+// Preview Function for Web UI
+// ============================================================================
+
 export function getPagePreview(page: Page): { html: string; markdown: string } {
   const bodyStorage = page.body?.storage?.value || '';
+  const attachmentsPath = `/api/attachments/${page.id}`;
 
-  // Convert to markdown
+  const html = processConfluenceHtml(bodyStorage, attachmentsPath);
   const markdown = confluenceCodeMacroToFence(bodyStorage);
-
-  // Convert markdown to HTML for display
-  const html = marked.parse(markdown) as string;
 
   return { html, markdown };
 }

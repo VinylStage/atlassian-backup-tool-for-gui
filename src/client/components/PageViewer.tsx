@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Page, api } from '../services/api';
-import MarkdownRenderer from './MarkdownRenderer';
 
 interface Props {
   page: Page;
@@ -52,7 +51,7 @@ export default function PageViewer({ page }: Props) {
 
       {/* Content card */}
       <div className="card">
-        {/* View mode toggle - simplified to Preview/Raw */}
+        {/* View mode toggle */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
           <button
             className={`btn ${viewMode === 'preview' ? 'btn-primary' : 'btn-secondary'}`}
@@ -77,20 +76,18 @@ export default function PageViewer({ page }: Props) {
         {loading ? (
           <div className="loading">Loading preview...</div>
         ) : viewMode === 'preview' && preview ? (
-          <MarkdownRenderer content={preview.markdown} />
-        ) : (
-          <pre
+          <div
+            className="prose"
+            dangerouslySetInnerHTML={{ __html: preview.html }}
             style={{
-              background: 'var(--color-bg-primary)',
               padding: '1rem',
-              borderRadius: '6px',
-              overflow: 'auto',
-              fontSize: '0.75rem',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              maxHeight: '600px',
+              backgroundColor: 'var(--color-bg-secondary)',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border)',
             }}
-          >
+          />
+        ) : (
+          <pre className="raw-view">
             {page.body?.storage?.value || 'No content'}
           </pre>
         )}
