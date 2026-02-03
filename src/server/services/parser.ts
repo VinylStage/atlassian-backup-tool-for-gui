@@ -169,15 +169,28 @@ export function confluenceCodeMacroToHtml(htmlContent: string): string {
 function cleanConfluenceHtmlForMarkdown(html: string): string {
   let cleaned = html;
 
+  // Remove Confluence-specific attributes that might interfere (do this first)
+  cleaned = cleaned.replace(/\s+(local-id|ac:local-id|data-table-width|data-layout)="[^"]*"/gi, '');
+
+  // Handle empty <p /> or <p></p> tags inside table cells (replace with empty string)
+  cleaned = cleaned.replace(/<(th|td)([^>]*)>\s*<p[^>]*\s*\/>\s*<\/(th|td)>/gi, '<$1$2></$3>');
+  cleaned = cleaned.replace(/<(th|td)([^>]*)>\s*<p[^>]*>\s*<\/p>\s*<\/(th|td)>/gi, '<$1$2></$3>');
+
   // Remove <p> tags inside <th> and <td> (Confluence wraps cell content in <p>)
   // This prevents Turndown from adding extra newlines in tables
   cleaned = cleaned.replace(/<(th|td)([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/(th|td)>/gi, '<$1$2>$3</$4>');
 
-  // Remove Confluence-specific attributes that might interfere
-  cleaned = cleaned.replace(/\s+(local-id|ac:local-id|data-table-width|data-layout)="[^"]*"/gi, '');
-
-  // Clean up <br /> inside table cells
+  // Clean up <br /> inside table cells (replace with space)
   cleaned = cleaned.replace(/(<(th|td)[^>]*>[\s\S]*?)<br\s*\/?>([\s\S]*?<\/(th|td)>)/gi, '$1 $3');
+
+  // Clean table cell content: escape pipes and remove newlines
+  cleaned = cleaned.replace(/<(th|td)([^>]*)>([\s\S]*?)<\/(th|td)>/gi, (_match, tag, attrs, content, closeTag) => {
+    let cleanedContent = content
+      .replace(/\|/g, '\\|')      // Escape pipe characters (markdown table delimiter)
+      .replace(/[\r\n]+/g, ' ')   // Replace newlines with space
+      .trim();                     // Trim whitespace
+    return `<${tag}${attrs}>${cleanedContent}</${closeTag}>`;
+  });
 
   return cleaned;
 }
