@@ -7,10 +7,12 @@ atlassian-backup-tool-for-gui/
 ├── src/
 │   ├── client/                 # React 프론트엔드
 │   │   ├── components/         # React 컴포넌트
+│   │   ├── hooks/              # 커스텀 React 훅
 │   │   ├── services/           # API 클라이언트
 │   │   ├── store/              # Zustand 상태 관리
 │   │   ├── App.tsx
 │   │   ├── main.tsx
+│   │   ├── index.html          # HTML 엔트리 포인트
 │   │   └── index.css           # Tailwind CSS
 │   └── server/                 # Express 백엔드
 │       ├── routes/             # API 라우트
@@ -98,8 +100,10 @@ highlight.js를 사용하여 코드 블록에 언어별 구문 강조를 적용�
 | `java` | Java |
 | `go` | Go |
 | `rust` | Rust |
+| `ruby`, `rb` | Ruby |
 | `bash`, `sh`, `shell` | Bash |
-| `sql`, `html`, `css`, `json`, `yaml` | 각각 지원 |
+| `sql`, `html`, `css`, `json` | 각각 지원 |
+| `yaml`, `yml` | YAML |
 
 ## 이미지 처리
 
@@ -118,12 +122,29 @@ highlight.js를 사용하여 코드 블록에 언어별 구문 강조를 적용�
 
 ## API 엔드포인트
 
+### Health
+
+```
+GET /api/health
+```
+서버 상태 확인
+
+**Response:**
+```json
+{ "status": "ok" }
+```
+
 ### Spaces
 
 ```
 GET /api/spaces
 ```
 모든 Confluence Space 목록 조회
+
+**Response:**
+```json
+{ "spaces": Space[] }
+```
 
 ```
 GET /api/spaces/:id/pages
@@ -146,6 +167,11 @@ GET /api/pages/:id/preview
 ```
 페이지 미리보기 (HTML/Markdown 변환 결과)
 
+**Response:**
+```json
+{ "html": "string", "markdown": "string" }
+```
+
 ```
 POST /api/pages/:id/download
 ```
@@ -163,6 +189,11 @@ POST /api/pages/:id/download
 DELETE /api/pages/:id
 ```
 단일 페이지 삭제 (Confluence에서 영구 삭제)
+
+**Response:**
+```json
+{ "success": true, "message": "Page {id} deleted successfully" }
+```
 
 ```
 POST /api/pages/bulk-delete
@@ -183,6 +214,18 @@ POST /api/pages/bulk-delete
 | `pageIds` | 삭제할 페이지 ID 배열 |
 | `includeChildren` | true면 하위 페이지도 함께 삭제 |
 | `spaceId` | Space ID (캐시 무효화용) |
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Deleted N pages, M failed",
+  "results": [
+    { "pageId": "string", "success": true },
+    { "pageId": "string", "success": false, "error": "string" }
+  ]
+}
+```
 
 ### Backup
 
@@ -211,10 +254,74 @@ POST /api/backup
 - `md+pdf` - Markdown + PDF
 - `all` - 모든 형식
 
+**Response:**
+```json
+{
+  "success": true,
+  "outputPath": "/path/to/output",
+  "results": {
+    "pagesProcessed": 10,
+    "html": 10,
+    "markdown": 10,
+    "pdf": 0
+  },
+  "attachments": {
+    "downloaded": 5,
+    "failed": 0
+  }
+}
+```
+
 ```
 POST /api/backup/download
 ```
 백업 후 ZIP 다운로드
+
+**Request Body:**
+```json
+{
+  "spaceId": "1572879",
+  "spaceName": "Engineering Wiki",
+  "formats": { "html": true, "md": true, "pdf": false },
+  "level": "space",
+  "targetIds": []
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `spaceId` | Space ID (필수) |
+| `spaceName` | Space 이름 (ZIP 파일명에 사용) |
+| `formats` | 출력 포맷 선택 |
+| `level` | 백업 레벨: `space`, `folder`, `page` |
+| `targetIds` | folder/page 레벨일 때 대상 페이지 ID 배열 |
+
+**Response:** ZIP 파일 스트림
+
+### Attachments
+
+```
+GET /api/attachments/:pageId
+```
+페이지의 첨부파일 목록 조회
+
+**Response:**
+```json
+{
+  "attachments": [
+    { "title": "image.png", "mediaType": "image/png", ... }
+  ]
+}
+```
+
+```
+GET /api/attachments/:pageId/:filename
+```
+첨부파일 다운로드
+
+파일을 로컬 캐시에서 찾거나, 없으면 Confluence에서 다운로드하여 반환합니다.
+
+**Response:** 파일 바이너리 스트림
 
 ## 서버 캐시 시스템
 
@@ -239,20 +346,46 @@ POST /api/backup/download
 Zustand를 사용한 상태 관리 구조:
 
 ```typescript
+interface CachedTreeData {
+  tree: TreeNode[];
+  stats: TreeStats;
+}
+
 interface AppState {
+  // ===== 상태 (State) =====
+
   // Spaces
   spaces: Space[];
+  spacesLoaded: boolean;        // Space 목록 로드 완료 여부
+  spacesLoading: boolean;       // Space 목록 로딩 중 여부
   selectedSpace: Space | null;
 
   // Pages
   pagesCache: Map<string, Page[]>;
-  treeCache: Map<string, TreeData>;
+  treeCache: Map<string, CachedTreeData>;
   selectedPageId: string | null;
 
-  // Actions
+  // Loading & Error
+  spaceDataLoading: boolean;    // Space 데이터 로딩 중 여부
+  error: string | null;         // 에러 메시지
+
+  // ===== 액션 (Actions) =====
+
   loadSpaces(): Promise<void>;
   selectSpace(space: Space): Promise<void>;
+  selectPage(pageId: string | null): void;
   refreshCurrentSpace(): Promise<void>;  // 서버 캐시 무시
+
+  // ===== Getter 함수 =====
+
+  getSelectedPage(): Page | null;
+  getCurrentPages(): Page[];
+  getCurrentTree(): TreeNode[] | null;
+  getCurrentStats(): TreeStats | null;
+
+  // ===== 캐시 관리 =====
+
+  clearCache(): void;
 }
 ```
 
