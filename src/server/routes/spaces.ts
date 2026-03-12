@@ -107,7 +107,7 @@ export function createSpacesRouter(): Router {
    */
   router.get('/:id/pages', async (req: Request, res: Response) => {
     try {
-      const spaceId = req.params.id;
+      const spaceId = req.params.id as string;
       // 쿼리 파라미터에서 refresh 플래그 확인
       const refresh = req.query.refresh === 'true';
       const client = getConfluenceClient();
@@ -160,7 +160,7 @@ export function createSpacesRouter(): Router {
    */
   router.get('/:id/tree', async (req: Request, res: Response) => {
     try {
-      const spaceId = req.params.id;
+      const spaceId = req.params.id as string;
       const refresh = req.query.refresh === 'true';
       const client = getConfluenceClient();
 

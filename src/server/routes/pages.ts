@@ -67,7 +67,7 @@ export function createPagesRouter(): Router {
    */
   router.get('/:id/preview', async (req: Request, res: Response) => {
     try {
-      const pageId = req.params.id;
+      const pageId = req.params.id as string;
 
       // 캐시 확인
       const cached = pageCache.get(pageId);
@@ -124,10 +124,11 @@ export function createPagesRouter(): Router {
    */
   router.post('/:id/download', async (req: Request, res: Response) => {
     try {
-      const pageId = req.params.id;
-      const { formats, spaceName } = req.body as {
+      const pageId = req.params.id as string;
+      const { formats, spaceName, spaceId: clientSpaceId } = req.body as {
         formats: { html?: boolean; md?: boolean; pdf?: boolean };
         spaceName?: string;
+        spaceId?: string;
       };
 
       // 포맷 선택 검사
@@ -144,8 +145,17 @@ export function createPagesRouter(): Router {
       const cached = pageCache.get(pageId);
       if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         foundPage = cached.page;
+      } else if (clientSpaceId) {
+        // 캐시 미스: 제공된 spaceId로 해당 space만 검색
+        const pages = await client.getPagesFromSpace(clientSpaceId);
+        const page = pages.find((p) => p.id === pageId) ?? null;
+        if (page) {
+          foundPage = page;
+          foundSpaceName = foundSpaceName || spaceName || '';
+          pageCache.set(pageId, { page, timestamp: Date.now() });
+        }
       } else {
-        // 캐시 미스: 전체 Space 순회
+        // 캐시 미스 fallback: 전체 Space 순회
         const spaces = await client.getSpaces();
         for (const space of spaces) {
           const pages = await client.getPagesFromSpace(space.id);
@@ -234,7 +244,7 @@ export function createPagesRouter(): Router {
    */
   router.delete('/:id', async (req: Request, res: Response) => {
     try {
-      const pageId = req.params.id;
+      const pageId = req.params.id as string;
       const client = getConfluenceClient();
 
       // Confluence API로 삭제

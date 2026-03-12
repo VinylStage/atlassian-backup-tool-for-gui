@@ -281,13 +281,14 @@ export const api = {
   async downloadPage(
     pageId: string,
     spaceName: string,
+    spaceId: string,
     formats: { html?: boolean; md?: boolean; pdf?: boolean }
   ): Promise<void> {
     // POST 요청으로 ZIP 파일 요청
     const response = await fetch(`${BASE_URL}/pages/${pageId}/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ formats, spaceName }),
+      body: JSON.stringify({ formats, spaceName, spaceId }),
     });
 
     // 에러 처리

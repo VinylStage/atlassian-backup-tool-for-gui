@@ -17,7 +17,7 @@ export function createAttachmentsRouter(): Router {
    */
   router.get('/:pageId/:filename', async (req: Request, res: Response) => {
     try {
-      const { pageId, filename } = req.params;
+      const { pageId, filename } = req.params as Record<string, string>;
       const decodedFilename = decodeURIComponent(filename);
 
       // Check local cache first (use temp directory to avoid duplicate storage)
@@ -66,7 +66,7 @@ export function createAttachmentsRouter(): Router {
    */
   router.get('/:pageId', async (req: Request, res: Response) => {
     try {
-      const { pageId } = req.params;
+      const { pageId } = req.params as Record<string, string>;
       const client = getConfluenceClient();
       const attachments = await client.getAttachments(pageId);
 

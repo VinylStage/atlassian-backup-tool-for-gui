@@ -113,7 +113,7 @@ export default function PageViewer({ page }: Props) {
       setDownloading(true);
       setDownloadError(null);
       // API 호출: ZIP 다운로드
-      await api.downloadPage(page.id, selectedSpace?.name || '', formats);
+      await api.downloadPage(page.id, selectedSpace?.name || '', page.spaceId, formats);
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : 'Download failed');
     } finally {

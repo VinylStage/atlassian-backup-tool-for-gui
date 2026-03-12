@@ -14,6 +14,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import https from 'https';
 import path from 'path';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
@@ -77,6 +78,9 @@ export class ConfluenceClient {
         'Content-Type': 'application/json', // 요청 본문 타입
         Accept: 'application/json',         // 응답 형식
       },
+      httpsAgent: new https.Agent({
+        keepAlive: false, // stale 연결로 인한 ECONNRESET 방지
+      }),
     });
 
     // 응답 인터셉터: API 에러를 로깅
@@ -97,6 +101,28 @@ export class ConfluenceClient {
         throw error; // 에러를 다시 throw하여 호출자에게 전파
       }
     );
+  }
+
+  /**
+   * 연결 오류 시 재시도하는 유틸리티 메서드
+   */
+  private async requestWithRetry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        const isRetryable = ['ECONNRESET', 'ECONNABORTED', 'ETIMEDOUT', 'ENOTFOUND'].includes(error.code);
+        if (isRetryable && attempt < retries) {
+          const delay = Math.pow(2, attempt) * 500; // 0.5s, 1s, 2s
+          logger.warn(`Connection error (${error.code}), retry ${attempt + 1}/${retries} in ${delay}ms`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw error;
+      }
+    }
+    // TypeScript를 위한 unreachable fallback
+    throw new Error('requestWithRetry: unexpected exit');
   }
 
   /**
@@ -124,9 +150,9 @@ export class ConfluenceClient {
       if (cursor) params.cursor = cursor; // 다음 페이지 커서
 
       // API 호출
-      const response = await this.client.get<ConfluenceSpacesResponse>('/spaces', {
-        params,
-      });
+      const response = await this.requestWithRetry(() =>
+        this.client.get<ConfluenceSpacesResponse>('/spaces', { params })
+      );
 
       // 결과를 Space 배열에 추가
       for (const item of response.data.results) {
@@ -174,9 +200,9 @@ export class ConfluenceClient {
       };
       if (cursor) params.cursor = cursor;
 
-      const response = await this.client.get<ConfluencePagesResponse>('/pages', {
-        params,
-      });
+      const response = await this.requestWithRetry(() =>
+        this.client.get<ConfluencePagesResponse>('/pages', { params })
+      );
 
       // 각 페이지 데이터를 Page 인터페이스에 맞게 변환
       for (const item of response.data.results) {

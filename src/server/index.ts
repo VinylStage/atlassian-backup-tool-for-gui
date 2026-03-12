@@ -73,7 +73,8 @@ async function startServer() {
 
     // SPA 폴백: API가 아닌 모든 경로에서 index.html 반환
     // React Router가 클라이언트에서 라우팅을 처리할 수 있도록 함
-    app.get('*', (_req, res) => {
+    // Express 5: '*' wildcard 대신 app.use() 사용
+    app.use((_req, res) => {
       res.sendFile(path.join(config.clientDir, 'index.html'));
     });
   }
