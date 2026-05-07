@@ -374,10 +374,11 @@ function buildHtmlDoc(
   page: Page,
   spaceName: string,
   pageMap: Map<string, Page>,
-  attachmentsDir: string = './attachments'
+  attachmentsDir: string = './attachments',
+  includeMetadata = true
 ): string {
   const bodyHtml = processConfluenceHtml(page.body?.storage?.value || '', attachmentsDir);
-  return buildHtmlDocInternal(page, spaceName, pageMap, bodyHtml);
+  return buildHtmlDocInternal(page, spaceName, pageMap, bodyHtml, includeMetadata);
 }
 
 // Build HTML for PDF with absolute file:// paths for images and PDF-specific styles
@@ -385,7 +386,8 @@ function buildHtmlDocForPdf(
   page: Page,
   spaceName: string,
   pageMap: Map<string, Page>,
-  absoluteAttachmentsPath: string
+  absoluteAttachmentsPath: string,
+  includeMetadata = true
 ): string {
   const titleSafe = escapeHtml(page.title || '');
   const spaceNameSafe = escapeHtml(spaceName);
@@ -493,9 +495,7 @@ function buildHtmlDocForPdf(
 </head>
 <body>
   <h1>${titleSafe}</h1>
-  <div class="meta">
-    ID: ${page.id} | Space: ${spaceDisplay} | Parent: ${parentDisplay} | ${page.createdAt}
-  </div>
+  ${includeMetadata ? `<div class="meta">ID: ${page.id} | Space: ${spaceDisplay} | Parent: ${parentDisplay} | ${page.createdAt}</div>` : ''}
   <div>${bodyHtml}</div>
   <div class="footer">Exported from Confluence</div>
 </body>
@@ -506,7 +506,8 @@ function buildHtmlDocInternal(
   page: Page,
   spaceName: string,
   pageMap: Map<string, Page>,
-  bodyHtml: string
+  bodyHtml: string,
+  includeMetadata = true
 ): string {
   const titleSafe = escapeHtml(page.title || '');
   const spaceNameSafe = escapeHtml(spaceName);
@@ -541,13 +542,13 @@ function buildHtmlDocInternal(
     <div class="max-w-4xl mx-auto">
         <header class="mb-6">
             <h1 class="text-3xl font-bold mb-2">${titleSafe}</h1>
-            <div class="text-sm text-gray-500 flex flex-wrap gap-4">
+            ${includeMetadata ? `<div class="text-sm text-gray-500 flex flex-wrap gap-4">
                 <span><strong>ID</strong> ${page.id}</span>
                 <span><strong>Space</strong> ${spaceDisplay}</span>
                 <span><strong>Parent</strong> ${parentDisplay}</span>
                 <span><strong>Status</strong> ${page.status}</span>
                 <span><strong>Created</strong> ${page.createdAt}</span>
-            </div>
+            </div>` : ''}
         </header>
 
         <main class="prose max-w-none bg-white rounded-xl p-6 shadow-sm">
@@ -580,7 +581,8 @@ export async function convertPages(
   pages: Page[],
   outputRoot: string,
   spaceName: string,
-  formats: { html?: boolean; markdown?: boolean; pdf?: boolean }
+  formats: { html?: boolean; markdown?: boolean; pdf?: boolean },
+  options?: { includeMetadata?: boolean }
 ): Promise<ConvertResult> {
   const pageMap = buildPageMap(pages);
   const client = getConfluenceClient();
@@ -635,9 +637,11 @@ export async function convertPages(
         continue;
       }
 
+      const includeMetadata = options?.includeMetadata !== false;
+
       // Generate HTML
       if (formats.html) {
-        const htmlDoc = buildHtmlDoc(page, spaceName, pageMap, './attachments');
+        const htmlDoc = buildHtmlDoc(page, spaceName, pageMap, './attachments', includeMetadata);
         writeFile(path.join(pageDir, 'page.html'), htmlDoc);
         htmlCount++;
       }
@@ -652,7 +656,9 @@ export async function convertPages(
         const spaceInfo = `${page.spaceId} (${spaceName || 'Unknown'})`;
 
         let mdContent = `# ${page.title}\n\n`;
-        mdContent += `<!-- id: ${page.id} | space: ${spaceInfo} | parent: ${parentInfo} | status: ${page.status} -->\n\n`;
+        if (includeMetadata) {
+          mdContent += `<!-- id: ${page.id} | space: ${spaceInfo} | parent: ${parentInfo} | status: ${page.status} -->\n\n`;
+        }
         mdContent += mdBody;
 
         writeFile(path.join(pageDir, 'page.md'), mdContent);
@@ -664,7 +670,7 @@ export async function convertPages(
         try {
           // Use absolute file:// path for images in PDF
           const absoluteAttachmentsPath = path.resolve(attachmentsDir);
-          const htmlDoc = buildHtmlDocForPdf(page, spaceName, pageMap, absoluteAttachmentsPath);
+          const htmlDoc = buildHtmlDocForPdf(page, spaceName, pageMap, absoluteAttachmentsPath, includeMetadata);
 
           // Save HTML to temp file for proper file:// URL resolution
           // Using goto('file://...') instead of setContent() allows Puppeteer to load local images

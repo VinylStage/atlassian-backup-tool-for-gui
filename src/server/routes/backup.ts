@@ -130,12 +130,13 @@ export function createBackupRouter(): Router {
   // POST /api/backup/download - Download backup as ZIP file
   router.post('/download', async (req: Request, res: Response) => {
     try {
-      const { spaceId, spaceName, formats, level, targetIds } = req.body as {
+      const { spaceId, spaceName, formats, level, targetIds, includeMetadata } = req.body as {
         spaceId: string;
         spaceName?: string;
         formats: { html?: boolean; md?: boolean; pdf?: boolean };
         level?: BackupLevel;
         targetIds?: string[];
+        includeMetadata?: boolean;
       };
 
       if (!spaceId) {
@@ -174,7 +175,7 @@ export function createBackupRouter(): Router {
           html: formats.html,
           markdown: formats.md,
           pdf: formats.pdf,
-        });
+        }, { includeMetadata: includeMetadata !== false });
 
         logger.info(
           `Conversion complete: ${result.pagesProcessed} pages, ` +

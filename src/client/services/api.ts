@@ -282,13 +282,14 @@ export const api = {
     pageId: string,
     spaceName: string,
     spaceId: string,
-    formats: { html?: boolean; md?: boolean; pdf?: boolean }
+    formats: { html?: boolean; md?: boolean; pdf?: boolean },
+    includeMetadata = true
   ): Promise<void> {
     // POST 요청으로 ZIP 파일 요청
     const response = await fetch(`${BASE_URL}/pages/${pageId}/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ formats, spaceName, spaceId }),
+      body: JSON.stringify({ formats, spaceName, spaceId, includeMetadata }),
     });
 
     // 에러 처리
@@ -369,13 +370,14 @@ export const api = {
     spaceName: string,
     formats: { html?: boolean; md?: boolean; pdf?: boolean },
     level: BackupLevel,
-    targetIds?: string[]
+    targetIds?: string[],
+    includeMetadata = true
   ): Promise<void> {
     // POST 요청으로 백업 ZIP 요청
     const response = await fetch(`${BASE_URL}/backup/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spaceId, spaceName, formats, level, targetIds }),
+      body: JSON.stringify({ spaceId, spaceName, formats, level, targetIds, includeMetadata }),
     });
 
     // 에러 처리

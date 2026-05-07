@@ -125,10 +125,11 @@ export function createPagesRouter(): Router {
   router.post('/:id/download', async (req: Request, res: Response) => {
     try {
       const pageId = req.params.id as string;
-      const { formats, spaceName, spaceId: clientSpaceId } = req.body as {
+      const { formats, spaceName, spaceId: clientSpaceId, includeMetadata } = req.body as {
         formats: { html?: boolean; md?: boolean; pdf?: boolean };
         spaceName?: string;
         spaceId?: string;
+        includeMetadata?: boolean;
       };
 
       // 포맷 선택 검사
@@ -183,7 +184,8 @@ export function createPagesRouter(): Router {
           [foundPage],
           tempDir,
           foundSpaceName,
-          { html: formats.html, markdown: formats.md, pdf: formats.pdf }
+          { html: formats.html, markdown: formats.md, pdf: formats.pdf },
+          { includeMetadata: includeMetadata !== false }
         );
 
         // ZIP 파일 생성

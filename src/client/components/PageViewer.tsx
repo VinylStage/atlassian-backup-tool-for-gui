@@ -60,6 +60,8 @@ export default function PageViewer({ page }: Props) {
 
   // Zustand에서 현재 Space 이름 가져오기 (파일명에 사용)
   const selectedSpace = useStore((state) => state.selectedSpace);
+  const includeMetadata = useStore((state) => state.includeMetadata);
+  const setIncludeMetadata = useStore((state) => state.setIncludeMetadata);
 
   // ===== 페이지 변경 시 미리보기 로드 =====
 
@@ -113,7 +115,7 @@ export default function PageViewer({ page }: Props) {
       setDownloading(true);
       setDownloadError(null);
       // API 호출: ZIP 다운로드
-      await api.downloadPage(page.id, selectedSpace?.name || '', page.spaceId, formats);
+      await api.downloadPage(page.id, selectedSpace?.name || '', page.spaceId, formats, includeMetadata);
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : 'Download failed');
     } finally {
@@ -193,6 +195,19 @@ export default function PageViewer({ page }: Props) {
               onChange={(e) => setFormats({ ...formats, pdf: e.target.checked })}
             />
             <span className="format-label">PDF</span>
+          </label>
+
+          {/* 구분선 */}
+          <span style={{ borderLeft: '1px solid var(--color-border)', height: '1rem', margin: '0 0.25rem' }} />
+
+          {/* 메타데이터 포함 토글 */}
+          <label className="format-checkbox" title="ID, Space, Parent 등 내부 식별자 포함 여부">
+            <input
+              type="checkbox"
+              checked={includeMetadata}
+              onChange={(e) => setIncludeMetadata(e.target.checked)}
+            />
+            <span className="format-label">메타데이터</span>
           </label>
 
           {/* 다운로드 버튼 */}

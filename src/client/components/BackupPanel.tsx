@@ -16,6 +16,7 @@
 
 import { useState, useMemo } from 'react';
 import { Space, Page, TreeNode, BackupLevel, api } from '../services/api';
+import { useStore } from '../store/useStore';
 
 // ===== 타입 정의 =====
 
@@ -105,6 +106,9 @@ export default function BackupPanel({ space, pages, tree }: Props) {
 
   /** 출력 포맷 선택 (기본: HTML + MD) */
   const [formats, setFormats] = useState({ html: true, md: true, pdf: false });
+
+  const includeMetadata = useStore((state) => state.includeMetadata);
+  const setIncludeMetadata = useStore((state) => state.setIncludeMetadata);
 
   /** 백업 레벨 선택 */
   const [level, setLevel] = useState<BackupLevel>('space');
@@ -255,7 +259,8 @@ export default function BackupPanel({ space, pages, tree }: Props) {
         space.name,
         formats,
         level,
-        level === 'space' ? undefined : targetIds
+        level === 'space' ? undefined : targetIds,
+        includeMetadata
       );
 
       // 성공 메시지
@@ -409,6 +414,29 @@ export default function BackupPanel({ space, pages, tree }: Props) {
               disabled={loading}
             />
             <span className="format-label">PDF</span>
+          </label>
+        </div>
+      </div>
+
+      {/* ===== 메타데이터 설정 ===== */}
+      <div style={{ marginBottom: '0.75rem' }}>
+        <div style={{ fontSize: '0.75rem', marginBottom: '0.375rem', color: 'var(--color-text-secondary)' }}>
+          옵션
+        </div>
+        <div className="download-controls" style={{ borderBottom: 'none', marginBottom: 0 }}>
+          <label className="format-checkbox" title="ID, Space, Parent 등 내부 식별자 포함 여부 (외부 전송 시 해제)">
+            <input
+              type="checkbox"
+              checked={includeMetadata}
+              onChange={(e) => setIncludeMetadata(e.target.checked)}
+              disabled={loading}
+            />
+            <span className="format-label">
+              메타데이터 포함
+              <span style={{ fontSize: '0.65rem', color: 'var(--color-text-secondary)', marginLeft: '0.25rem' }}>
+                ID · Space · Parent
+              </span>
+            </span>
           </label>
         </div>
       </div>

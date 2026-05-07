@@ -98,6 +98,12 @@ interface AppState {
   clearCache: () => void;
   /** 현재 Space 새로고침 (캐시 우회) */
   refreshCurrentSpace: () => Promise<void>;
+
+  // ===== 출력 설정 =====
+
+  /** 다운로드 파일 내 메타데이터(ID, Space, Parent 등) 포함 여부 */
+  includeMetadata: boolean;
+  setIncludeMetadata: (v: boolean) => void;
 }
 
 // ===== Zustand 스토어 생성 =====
@@ -128,6 +134,7 @@ export const useStore = create<AppState>((set, get) => ({
   treeCache: new Map(),
   spaceDataLoading: false,
   error: null,
+  includeMetadata: localStorage.getItem('includeMetadata') !== 'false',
 
   // ===== 액션 구현 =====
 
@@ -368,5 +375,10 @@ export const useStore = create<AppState>((set, get) => ({
         spaceDataLoading: false,
       });
     }
+  },
+
+  setIncludeMetadata: (v) => {
+    localStorage.setItem('includeMetadata', String(v));
+    set({ includeMetadata: v });
   },
 }));
