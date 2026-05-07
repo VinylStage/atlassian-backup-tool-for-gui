@@ -4,7 +4,6 @@ import { gfm } from 'turndown-plugin-gfm';
 import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js';
-import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
 import { safeFilename, ensureDir, writeFile, writeJson } from '../utils/fileUtils.js';
 import { getConfluenceClient } from './confluenceClient.js';
@@ -377,7 +376,6 @@ function buildHtmlDoc(
   pageMap: Map<string, Page>,
   attachmentsDir: string = './attachments'
 ): string {
-  const titleSafe = escapeHtml(page.title || '');
   const bodyHtml = processConfluenceHtml(page.body?.storage?.value || '', attachmentsDir);
   return buildHtmlDocInternal(page, spaceName, pageMap, bodyHtml);
 }

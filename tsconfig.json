@@ -18,13 +18,11 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@server/*": ["src/server/*"],
-      "@client/*": ["src/client/*"]
+      "@/*": ["./src/*"],
+      "@server/*": ["./src/server/*"],
+      "@client/*": ["./src/client/*"]
     }
   },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.server.json" }]
+  "include": ["src"]
 }

@@ -245,7 +245,7 @@ export default function App() {
             {/* 페이지 트리 컴포넌트 */}
             <PageTree
               tree={tree}
-              selectedPageId={selectedPageId}
+              selectedPageId={selectedPageId ?? undefined}
               onSelect={selectPage}
               onPagesDeleted={refreshCurrentSpace}  // 삭제 후 새로고침 콜백
             />

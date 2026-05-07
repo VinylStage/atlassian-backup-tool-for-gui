@@ -27,6 +27,14 @@ import path from 'path';
  * safeFilename('A/B*C?D')            // 'A_B_C_D'
  * safeFilename('')                   // 'untitled'
  */
+export function contentDispositionAttachment(filename: string): string {
+  // HTTP headers are ASCII-only; non-ASCII (e.g. Korean) causes ERR_INVALID_CHAR
+  // Provide ASCII fallback + RFC 5987 encoded version for modern browsers
+  const ascii = filename.replace(/[^\x20-\x7E]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'download';
+  const encoded = encodeURIComponent(filename);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 export function safeFilename(s: string): string {
   // Step 1: null/undefined 방어 및 앞뒤 공백 제거
   let result = (s || '').trim();

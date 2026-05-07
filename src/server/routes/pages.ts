@@ -21,7 +21,7 @@ import archiver from 'archiver';
 import { getConfluenceClient } from '../services/confluenceClient.js';
 import { getPagePreview, convertPages } from '../services/parser.js';
 import { setupLogger } from '../utils/logger.js';
-import { safeFilename, ensureDir } from '../utils/fileUtils.js';
+import { safeFilename, ensureDir, contentDispositionAttachment } from '../utils/fileUtils.js';
 import { clearSpaceCache } from './spaces.js';
 
 // 모듈 전용 로거
@@ -206,7 +206,7 @@ export function createPagesRouter(): Router {
 
         // ZIP 파일 전송
         res.setHeader('Content-Type', 'application/zip');
-        res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+        res.setHeader('Content-Disposition', contentDispositionAttachment(zipFilename));
         const fileStream = fs.createReadStream(zipPath);
         fileStream.pipe(res);
 

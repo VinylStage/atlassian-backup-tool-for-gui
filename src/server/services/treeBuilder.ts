@@ -103,7 +103,7 @@ export function buildTree(pages: Page[], spaceId: string, spaceName: string): Tr
   // Step 2: 부모-자식 관계 연결
   const rootNodes: TreeNode[] = [];
 
-  for (const [pageId, node] of pageMap) {
+  for (const [, node] of pageMap) {
     const parentId = node.parentId;
     const parentType = node.parentType;
 

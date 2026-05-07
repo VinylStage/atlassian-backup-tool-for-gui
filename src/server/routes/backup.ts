@@ -7,7 +7,7 @@ import { getConfluenceClient } from '../services/confluenceClient.js';
 import { convertPages, ConvertResult } from '../services/parser.js';
 import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
-import { safeFilename, ensureDir } from '../utils/fileUtils.js';
+import { safeFilename, ensureDir, contentDispositionAttachment } from '../utils/fileUtils.js';
 
 const logger = setupLogger('routes_backup');
 
@@ -202,7 +202,7 @@ export function createBackupRouter(): Router {
 
         // Send ZIP file
         res.setHeader('Content-Type', 'application/zip');
-        res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"`);
+        res.setHeader('Content-Disposition', contentDispositionAttachment(zipFilename));
 
         const fileStream = fs.createReadStream(zipPath);
         fileStream.pipe(res);

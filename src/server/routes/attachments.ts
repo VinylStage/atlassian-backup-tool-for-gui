@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { getConfluenceClient } from '../services/confluenceClient.js';
-import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
 
 const logger = setupLogger('routes_attachments');

@@ -15,9 +15,8 @@
     "declaration": true,
     "declarationMap": true,
     "noEmit": false,
-    "baseUrl": ".",
     "paths": {
-      "@server/*": ["src/server/*"]
+      "@server/*": ["./src/server/*"]
     }
   },
   "include": ["src/server/**/*"],
