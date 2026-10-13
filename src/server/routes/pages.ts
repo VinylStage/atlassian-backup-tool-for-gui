@@ -17,7 +17,7 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { getConfluenceClient } from '../services/confluenceClient.js';
 import { getPagePreview, convertPages } from '../services/parser.js';
 import { setupLogger } from '../utils/logger.js';
@@ -195,7 +195,7 @@ export function createPagesRouter(): Router {
 
         // archiver로 ZIP 압축
         const output = fs.createWriteStream(zipPath);
-        const archive = archiver('zip', { zlib: { level: 9 } }); // 최대 압축
+        const archive = new ZipArchive({ zlib: { level: 9 } }); // 최대 압축
 
         archive.pipe(output);
         archive.directory(tempDir, false); // 폴더 구조 없이 파일만

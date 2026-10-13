@@ -62,7 +62,7 @@ function notFoundError(): AppError {
  *
  * @throws {AppError} PDF_BROWSER_NOT_FOUND - 사용 가능한 브라우저 없음
  */
-function resolveExecutablePath(puppeteer: Puppeteer): string {
+async function resolveExecutablePath(puppeteer: Puppeteer): Promise<string> {
   const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
   if (envPath) {
     if (fs.existsSync(envPath)) return envPath;
@@ -70,7 +70,7 @@ function resolveExecutablePath(puppeteer: Puppeteer): string {
     throw notFoundError();
   }
 
-  const bundledPath = puppeteer.executablePath();
+  const bundledPath = await puppeteer.executablePath();
   if (fs.existsSync(bundledPath)) return bundledPath;
 
   const systemPath = systemBrowserPaths().find((candidate) => fs.existsSync(candidate));
@@ -96,7 +96,7 @@ function resolveExecutablePath(puppeteer: Puppeteer): string {
  */
 export async function launchPdfBrowser(): Promise<PdfBrowser> {
   const puppeteer = (await import('puppeteer')).default;
-  const executablePath = resolveExecutablePath(puppeteer);
+  const executablePath = await resolveExecutablePath(puppeteer);
 
   try {
     const browser = await puppeteer.launch({
@@ -125,7 +125,7 @@ export async function launchPdfBrowser(): Promise<PdfBrowser> {
 export async function checkPdfBrowser(): Promise<void> {
   try {
     const puppeteer = (await import('puppeteer')).default;
-    const executablePath = resolveExecutablePath(puppeteer);
+    const executablePath = await resolveExecutablePath(puppeteer);
     logger.info(`PDF export browser: ${executablePath}`);
   } catch {
     logger.warn('PDF export is unavailable until a browser is installed (HTML/Markdown are unaffected).');

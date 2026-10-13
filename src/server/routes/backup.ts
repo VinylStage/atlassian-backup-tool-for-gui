@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { getConfluenceClient } from '../services/confluenceClient.js';
 import { convertPages, ConvertResult } from '../services/parser.js';
 import { config } from '../config.js';
@@ -188,7 +188,7 @@ export function createBackupRouter(): Router {
         const zipPath = path.join(os.tmpdir(), zipFilename);
 
         const output = fs.createWriteStream(zipPath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = new ZipArchive({ zlib: { level: 9 } });
 
         archive.pipe(output);
         archive.directory(tempDir, false);
