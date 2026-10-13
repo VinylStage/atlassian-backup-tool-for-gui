@@ -5,6 +5,7 @@ import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js';
 import { setupLogger } from '../utils/logger.js';
+import { launchPdfBrowser, type PdfBrowser } from './browser.js';
 import { safeFilename, ensureDir, writeFile, writeJson } from '../utils/fileUtils.js';
 import { getConfluenceClient } from './confluenceClient.js';
 import type { Page } from '../types/confluence.js';
@@ -601,14 +602,9 @@ export async function convertPages(
   let attachmentsFailed = 0;
 
   // Lazy load puppeteer only if PDF is needed
-  let browser: Awaited<ReturnType<typeof import('puppeteer').launch>> | null = null;
+  let browser: PdfBrowser | null = null;
   if (formats.pdf) {
-    const puppeteer = await import('puppeteer');
-    // Enable file:// access for local images in PDF
-    browser = await puppeteer.default.launch({
-      headless: true,
-      args: ['--allow-file-access-from-files', '--disable-web-security'],
-    });
+    browser = await launchPdfBrowser();
   }
 
   try {

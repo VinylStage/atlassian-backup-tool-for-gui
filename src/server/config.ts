@@ -9,6 +9,7 @@
  */
 
 import dotenv from 'dotenv';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -21,6 +22,46 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url); // 현재 파일의 절대 경로
 const __dirname = path.dirname(__filename);         // 현재 파일이 있는 디렉토리
 
+/** 로그 디렉토리 등 OS 표준 경로에 사용할 애플리케이션 이름 */
+const APP_NAME = 'atlassian-backup-tool';
+
+/**
+ * 로그 저장 디렉토리 결정
+ *
+ * @description
+ * 우선순위:
+ * 1. LOG_DIR 환경 변수 (상대 경로는 실행 디렉토리 기준)
+ * 2. OS 표준 경로
+ *    - Linux:   $XDG_STATE_HOME/atlassian-backup-tool/logs (기본 ~/.local/state/...) - XDG Base Directory Spec
+ *    - macOS:   ~/Library/Logs/atlassian-backup-tool
+ *    - Windows: %LOCALAPPDATA%\atlassian-backup-tool\Logs
+ */
+function resolveLogsDir(): string {
+  if (process.env.LOG_DIR) {
+    return path.resolve(process.env.LOG_DIR);
+  }
+
+  const home = os.homedir();
+  switch (process.platform) {
+    case 'darwin':
+      return path.join(home, 'Library', 'Logs', APP_NAME);
+    case 'win32':
+      return path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), APP_NAME, 'Logs');
+    default: {
+      // XDG 스펙: 상대 경로 값은 무효로 간주하고 기본값 사용
+      const xdgState = process.env.XDG_STATE_HOME;
+      const stateHome = xdgState && path.isAbsolute(xdgState) ? xdgState : path.join(home, '.local', 'state');
+      return path.join(stateHome, APP_NAME, 'logs');
+    }
+  }
+}
+
+/** 양의 정수 환경 변수 파싱 (잘못된 값이면 기본값) */
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = parseInt(value || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /**
  * 애플리케이션 전역 설정 객체
  *
@@ -32,6 +73,9 @@ const __dirname = path.dirname(__filename);         // 현재 파일이 있는 �
  * @property {boolean} isDev - 개발 모드 여부
  * @property {string} dataDir - 백업 데이터 저장 경로
  * @property {string} logsDir - 로그 파일 저장 경로
+ * @property {string} logLevel - 최소 로그 레벨 (error/warn/info/http/verbose/debug/silly)
+ * @property {number} logMaxSizeMb - 로그 파일 1개 최대 크기 (MB, 초과 시 로테이션)
+ * @property {number} logMaxFiles - 로테이션 시 보관할 파일 개수
  * @property {string} clientDir - 빌드된 클라이언트 파일 경로
  */
 export const config = {
@@ -47,7 +91,12 @@ export const config = {
 
   // 경로 설정 (현재 파일 기준 상대 경로를 절대 경로로 변환)
   dataDir: path.resolve(__dirname, '../../data'),       // src/server/../../data = ./data
-  logsDir: path.resolve(__dirname, '../../logs'),       // ./logs
+  logsDir: resolveLogsDir(),
+
+  // 로깅 설정
+  logLevel: process.env.LOG_LEVEL || 'info',
+  logMaxSizeMb: parsePositiveInt(process.env.LOG_MAX_SIZE_MB, 10),
+  logMaxFiles: parsePositiveInt(process.env.LOG_MAX_FILES, 5),
   clientDir: path.resolve(__dirname, '../../dist/client'), // ./dist/client
 };
 

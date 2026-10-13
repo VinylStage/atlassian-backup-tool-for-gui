@@ -21,6 +21,7 @@ import archiver from 'archiver';
 import { getConfluenceClient } from '../services/confluenceClient.js';
 import { getPagePreview, convertPages } from '../services/parser.js';
 import { setupLogger } from '../utils/logger.js';
+import { sendError } from '../utils/errors.js';
 import { safeFilename, ensureDir, contentDispositionAttachment } from '../utils/fileUtils.js';
 import { clearSpaceCache } from './spaces.js';
 
@@ -225,9 +226,7 @@ export function createPagesRouter(): Router {
       }
     } catch (error) {
       logger.error('Failed to download page:', error);
-      res.status(500).json({
-        message: error instanceof Error ? error.message : 'Failed to download page',
-      });
+      sendError(res, error, 'Failed to download page');
     }
   });
 

@@ -7,6 +7,7 @@ import { getConfluenceClient } from '../services/confluenceClient.js';
 import { convertPages, ConvertResult } from '../services/parser.js';
 import { config } from '../config.js';
 import { setupLogger } from '../utils/logger.js';
+import { sendError } from '../utils/errors.js';
 import { safeFilename, ensureDir, contentDispositionAttachment } from '../utils/fileUtils.js';
 
 const logger = setupLogger('routes_backup');
@@ -120,10 +121,7 @@ export function createBackupRouter(): Router {
       });
     } catch (error) {
       logger.error('Backup failed:', error);
-      res.status(500).json({
-        success: false,
-        message: error instanceof Error ? error.message : 'Backup failed',
-      });
+      sendError(res, error, 'Backup failed');
     }
   });
 
@@ -226,9 +224,7 @@ export function createBackupRouter(): Router {
       }
     } catch (error) {
       logger.error('Download backup failed:', error);
-      res.status(500).json({
-        message: error instanceof Error ? error.message : 'Download failed',
-      });
+      sendError(res, error, 'Download failed');
     }
   });
 

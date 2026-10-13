@@ -17,6 +17,7 @@
 import { useState, useMemo } from 'react';
 import { Space, Page, TreeNode, BackupLevel, api } from '../services/api';
 import { useStore } from '../store/useStore';
+import { localizeError } from '../i18n/errorMessages';
 
 // ===== 타입 정의 =====
 
@@ -266,7 +267,7 @@ export default function BackupPanel({ space, pages, tree }: Props) {
       // 성공 메시지
       setSuccessMessage(`Downloaded ${pageCount} page${pageCount !== 1 ? 's' : ''} as ZIP`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Download failed');
+      setError(localizeError(err, 'Download failed'));
     } finally {
       setLoading(false);
     }
