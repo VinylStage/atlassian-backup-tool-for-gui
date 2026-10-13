@@ -8,6 +8,7 @@ atlassian-backup-tool-for-gui/
 │   ├── client/                 # React 프론트엔드
 │   │   ├── components/         # React 컴포넌트
 │   │   ├── hooks/              # 커스텀 React 훅
+│   │   ├── i18n/               # 에러 코드 → 사용자 언어 메시지 (ko/en)
 │   │   ├── services/           # API 클라이언트
 │   │   ├── store/              # Zustand 상태 관리
 │   │   ├── App.tsx
@@ -15,8 +16,9 @@ atlassian-backup-tool-for-gui/
 │   │   ├── index.html          # HTML 엔트리 포인트
 │   │   └── index.css           # Tailwind CSS
 │   └── server/                 # Express 백엔드
+│       ├── middleware/         # Express 미들웨어 (액세스 로그)
 │       ├── routes/             # API 라우트
-│       ├── services/           # 비즈니스 로직
+│       ├── services/           # 비즈니스 로직 (browser.ts: PDF용 Chrome 관리)
 │       ├── types/              # TypeScript 타입
 │       ├── utils/              # 유틸리티
 │       ├── config.ts           # 설정
@@ -425,3 +427,84 @@ interface AppState {
 | `API_TOKEN` | API 토큰 | Yes |
 | `PORT` | 서버 포트 (기본: 3000) | No |
 | `NODE_ENV` | 실행 환경 (기본: `development`) | No |
+| `LOG_LEVEL` | 최소 로그 레벨: `error`/`warn`/`info`/`http`/`verbose`/`debug`/`silly` (기본: `info`) | No |
+| `LOG_DIR` | 로그 디렉토리 (기본: OS 표준 경로, [로깅](#로깅) 참조) | No |
+| `LOG_MAX_SIZE_MB` | 로그 파일 1개 최대 크기 MB (기본: 10) | No |
+| `LOG_MAX_FILES` | 로테이션 보관 파일 수 (기본: 5) | No |
+| `PUPPETEER_EXECUTABLE_PATH` | PDF 변환에 사용할 Chrome/Chromium 실행 파일 (지정 시 해당 경로만 사용) | No |
+
+## 로깅
+
+Winston 단일 루트 로거 + 모듈별 child 로거(`setupLogger('<module>')`).
+
+### 적용 표준
+
+| 항목 | 규칙 | 근거 |
+|------|------|------|
+| 저장 위치 (Linux) | `$XDG_STATE_HOME/atlassian-backup-tool/logs`, 미설정/상대경로면 `~/.local/state/...` | XDG Base Directory Spec 0.8 — 로그는 state data |
+| 저장 위치 (macOS) | `~/Library/Logs/atlassian-backup-tool` | Apple File System Programming Guide |
+| 저장 위치 (Windows) | `%LOCALAPPDATA%\atlassian-backup-tool\Logs` | Windows Known Folders (Local AppData) |
+| 스트림 출력 | 콘솔(stdout, error는 stderr) 항상 출력 | 12-Factor App XI. Logs |
+| 타임스탬프 | ISO 8601 / RFC 3339 UTC (`2026-10-13T06:40:00.123Z`) | RFC 3339 |
+| 파일 포맷 | JSON Lines (1줄 1이벤트) | 구조화 로그, 수집기(Fluent Bit/Vector/Loki) 호환 |
+| 레벨 | npm 레벨 (`error` < `warn` < `info` < `http` < `verbose` < `debug` < `silly`) | Winston 기본 |
+| 로테이션 | 크기 기준 `LOG_MAX_SIZE_MB` × `LOG_MAX_FILES`, tailable | 디스크 무한 증가 방지 |
+
+### 파일
+
+| 파일 | 내용 |
+|------|------|
+| `app.log` | `LOG_LEVEL` 이상 전체 이벤트 |
+| `error.log` | `error` 레벨 + uncaught exception / unhandled rejection |
+
+로테이션 시 `app.log`가 최신, `app1.log`, `app2.log` … 순으로 오래된 로그입니다.
+로그 디렉토리 생성에 실패하면 콘솔 전용으로 동작합니다.
+
+### 레코드 예시
+
+```json
+{"level":"error","module":"routes_backup","requestId":"a511580e-...","code":"PDF_BROWSER_NOT_FOUND","message":"Download backup failed: ...","stack":"AppError: ...","timestamp":"2026-10-13T06:51:00.663Z"}
+```
+
+### Request ID
+
+- 모든 요청에 `X-Request-Id` 부여 (클라이언트가 보낸 값이 `[A-Za-z0-9._-]{1,128}`이면 재사용)
+- 요청 처리 중 기록되는 모든 로그에 `requestId` 자동 포함 (AsyncLocalStorage)
+- 에러 응답 본문에도 `requestId` 포함 → UI에 표시된 ID로 로그 검색 가능
+
+### 액세스 로그
+
+`/api/*` 요청마다 `METHOD URL STATUS DURATIONms` 기록. 4xx/5xx는 `warn`, 그 외는 `http` 레벨(기본 `info`에서는 미출력, `LOG_LEVEL=http`로 활성화).
+
+## 에러 응답 형식
+
+백업/다운로드 API 실패 시:
+
+```json
+{
+  "code": "PDF_BROWSER_NOT_FOUND",
+  "message": "Chrome for PDF export is not installed. ...",
+  "details": { "installCommand": "npx puppeteer browsers install chrome" },
+  "requestId": "a511580e-9002-4697-b844-765f65d7cdc1"
+}
+```
+
+| code | HTTP | 의미 |
+|------|------|------|
+| `PDF_BROWSER_NOT_FOUND` | 503 | PDF 변환용 Chrome 없음 |
+| `PDF_BROWSER_LAUNCH_FAILED` | 503 | Chrome 실행 실패 (의존 라이브러리 누락, sandbox 등) |
+| `INTERNAL_ERROR` | 500 | 그 외 오류 (`message`에 원인) |
+
+클라이언트(`src/client/i18n/errorMessages.ts`)는 `navigator.languages` 기준 ko/en 메시지로 변환하고, 미등록 코드는 `message`를 그대로 표시합니다.
+
+## PDF 변환 브라우저
+
+`src/server/services/browser.ts`의 실행 파일 결정 순서:
+
+1. `PUPPETEER_EXECUTABLE_PATH` (지정 시 해당 경로만 사용, 없으면 `PDF_BROWSER_NOT_FOUND`)
+2. Puppeteer 번들 Chrome (`~/.cache/puppeteer`, `npm run browser:install`)
+3. 시스템 Chrome/Chromium (OS별 기본 설치 경로) — 버전 불일치 가능성이 있어 경고 로그 출력
+
+서버 시작 시 사용 가능 여부를 점검하여 로그에 남깁니다.
+
+npm 11(Node 24 기본 포함)은 의존성 install script를 기본 차단합니다. `package.json`의 `allowScripts`에 `puppeteer`가 승인되어 있어야 `npm install` 시 Chrome이 다운로드됩니다. puppeteer 버전을 올린 경우 `npm install-scripts approve puppeteer`로 승인을 갱신하세요.

@@ -12,7 +12,7 @@ Confluence Cloud 페이지를 로컬에 백업하는 웹 기반 도구입니다.
 
 ## 요구사항
 
-- Node.js 18+
+- Node.js 24+ / npm 11+ (`.nvmrc` 제공: `nvm use`)
 - Confluence Cloud 계정 및 API 토큰
 
 ## 설치
@@ -20,6 +20,15 @@ Confluence Cloud 페이지를 로컬에 백업하는 웹 기반 도구입니다.
 ```bash
 npm install
 ```
+
+PDF 변환용 Chrome은 `npm install` 시 자동 설치됩니다 (`package.json`의 `allowScripts`로 puppeteer 설치 스크립트 승인).
+자동 설치가 누락된 경우(예: `--ignore-scripts`, 사내 프록시) 수동 설치:
+
+```bash
+npm run browser:install
+```
+
+이미 설치된 Chrome/Chromium을 사용하려면 `PUPPETEER_EXECUTABLE_PATH`에 실행 파일 경로를 지정합니다.
 
 ## 환경 설정
 
@@ -32,6 +41,17 @@ API_TOKEN=your-api-token
 ```
 
 API 토큰은 [Atlassian Account Settings](https://id.atlassian.com/manage-profile/security/api-tokens)에서 생성할 수 있습니다.
+
+## 로그
+
+| OS | 기본 경로 |
+|----|-----------|
+| Linux | `$XDG_STATE_HOME/atlassian-backup-tool/logs` (기본 `~/.local/state/atlassian-backup-tool/logs`) |
+| macOS | `~/Library/Logs/atlassian-backup-tool` |
+| Windows | `%LOCALAPPDATA%\atlassian-backup-tool\Logs` |
+
+- `app.log`(전체), `error.log`(에러) — JSON Lines, 크기 기준 로테이션
+- `LOG_DIR`, `LOG_LEVEL`, `LOG_MAX_SIZE_MB`, `LOG_MAX_FILES`로 변경 가능 ([기술 문서](docs/technical.md#로깅))
 
 ## 실행
 
@@ -108,3 +128,6 @@ Atlassian, Confluence, and Jira are trademarks of Atlassian Pty Ltd.
 ## 관련 문서
 
 - [기술 문서](docs/technical.md)
+- [아키텍처](ARCHITECTURE.md)
+- [로드맵](ROADMAP.md)
+- [구현 감사 기록](IMPLEMENTATION_AUDIT.md)
