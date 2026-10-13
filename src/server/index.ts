@@ -15,9 +15,12 @@ import path from 'path';
 import { config, validateConfig } from './config.js';
 import { createApiRouter } from './routes/api.js';
 import { setupLogger } from './utils/logger.js';
+import { requestContext } from './utils/requestContext.js';
+import { sendError } from './utils/errors.js';
+import { accessLog } from './middleware/accessLog.js';
+import { checkPdfBrowser } from './services/browser.js';
 
-// 'server' 프리픽스로 로거 인스턴스 생성
-// 로그 파일명: logs/server_YYYY-MM-DD_HH-mm-ss.log
+// 'server' 모듈 로거 (저장 위치/형식은 utils/logger.ts 참조)
 const logger = setupLogger('server');
 
 /**
@@ -41,9 +44,12 @@ async function startServer() {
   // Content-Type: application/json 요청을 자동으로 파싱하여 req.body에 저장
   app.use(express.json());
 
+  // 요청 단위 Request ID 부여 (로그/응답 헤더/에러 응답에 공통 사용)
+  app.use(requestContext);
+
   // API 라우터 마운트
-  // /api/* 경로의 모든 요청을 API 라우터로 전달
-  app.use('/api', createApiRouter());
+  // /api/* 경로의 모든 요청을 API 라우터로 전달 (액세스 로그 포함)
+  app.use('/api', accessLog, createApiRouter());
 
   // 개발 모드 vs 프로덕션 모드 분기
   if (config.isDev) {
@@ -92,15 +98,19 @@ async function startServer() {
       // 에러 로깅 (파일 + 콘솔)
       logger.error('Unhandled error:', err);
 
-      // 클라이언트에게 500 에러 응답
-      res.status(500).json({ message: 'Internal server error' });
+      // 클라이언트에게 500 에러 응답 (code + requestId 포함)
+      sendError(res, new Error('Internal server error'), 'Internal server error');
     }
   );
+
+  // PDF 변환용 브라우저 사전 점검 (없으면 경고만 출력)
+  await checkPdfBrowser();
 
   // 서버 시작
   // config.port (기본값: 3000)에서 리스닝
   app.listen(config.port, () => {
     logger.info(`Server running at http://localhost:${config.port}`);
+    logger.info(`Log directory: ${config.logsDir} (level: ${config.logLevel})`);
 
     // 개발 모드일 때 추가 메시지
     if (config.isDev) {
@@ -112,6 +122,6 @@ async function startServer() {
 // 서버 시작 함수 실행
 // 에러 발생 시 콘솔에 출력하고 프로세스 종료
 startServer().catch((err) => {
-  console.error('Failed to start server:', err);
+  logger.error('Failed to start server:', err);
   process.exit(1); // 비정상 종료 코드
 });

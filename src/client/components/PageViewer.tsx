@@ -15,6 +15,7 @@
 import { useState, useEffect } from 'react';
 import { Page, api } from '../services/api';
 import { useStore } from '../store/useStore';
+import { localizeError } from '../i18n/errorMessages';
 
 // ===== 타입 정의 =====
 
@@ -117,7 +118,7 @@ export default function PageViewer({ page }: Props) {
       // API 호출: ZIP 다운로드
       await api.downloadPage(page.id, selectedSpace?.name || '', page.spaceId, formats, includeMetadata);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : 'Download failed');
+      setDownloadError(localizeError(err, 'Download failed'));
     } finally {
       setDownloading(false);
     }

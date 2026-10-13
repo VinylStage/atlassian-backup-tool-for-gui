@@ -134,6 +134,55 @@ export interface BackupResult {
   };
 }
 
+/**
+ * API 에러
+ *
+ * @description
+ * 서버 에러 응답 { code, message, details, requestId }를 보존
+ * code는 i18n/errorMessages.ts에서 사용자 언어 메시지로 변환됨
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly details?: Record<string, string>;
+  readonly requestId?: string;
+
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, string>,
+    requestId?: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
+    this.requestId = requestId;
+  }
+}
+
+/**
+ * 실패 응답을 ApiError로 변환
+ *
+ * @param {Response} response - ok가 아닌 fetch 응답
+ * @param {string} fallback - JSON 파싱 실패 시 사용할 메시지
+ */
+async function toApiError(response: Response, fallback: string): Promise<ApiError> {
+  const body = await response.json().catch(() => null);
+  if (!body) {
+    return new ApiError(fallback, response.status);
+  }
+  return new ApiError(
+    body.message || `HTTP ${response.status}`,
+    response.status,
+    body.code,
+    body.details,
+    body.requestId ?? response.headers.get('X-Request-Id') ?? undefined
+  );
+}
+
 // ===== API 기본 설정 =====
 
 /** API 기본 URL (프록시 경로) */
@@ -169,9 +218,8 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
   // HTTP 에러 처리 (4xx, 5xx)
   if (!response.ok) {
-    // 에러 메시지 추출 시도
-    const error = await response.json().catch(() => ({ message: 'Unknown error' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    // 에러 응답(code/message/requestId) 보존
+    throw await toApiError(response, 'Unknown error');
   }
 
   // JSON 파싱하여 반환
@@ -294,8 +342,7 @@ export const api = {
 
     // 에러 처리
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Download failed' }));
-      throw new Error(error.message || `HTTP ${response.status}`);
+      throw await toApiError(response, 'Download failed');
     }
 
     // Content-Disposition 헤더에서 파일명 추출
@@ -382,8 +429,7 @@ export const api = {
 
     // 에러 처리
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Download failed' }));
-      throw new Error(error.message || `HTTP ${response.status}`);
+      throw await toApiError(response, 'Download failed');
     }
 
     // 파일명 추출
